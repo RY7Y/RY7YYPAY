@@ -10,8 +10,8 @@ document.getElementById("pay").addEventListener("click", async () => {
         amount: 500, // 5.00 USD
         currency: "usd",
         description: "خدمة RY7 - تجربة",
-        success_url: "https://devry7yy.org/success",
-        cancel_url: "https://devry7yy.org/cancel"
+success_url: "https://devry7yy.org/success.html",
+cancel_url: "https://devry7yy.org/cancel.html"
       })
     });
 
