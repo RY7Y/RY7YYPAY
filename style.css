@@ -1,0 +1,41 @@
+body {
+  font-family: "Tahoma", sans-serif;
+  margin: 0;
+  padding: 0;
+  background: #f4f6f8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+}
+
+.container {
+  background: white;
+  padding: 30px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  text-align: center;
+  width: 90%;
+  max-width: 400px;
+}
+
+button {
+  background: #635bff;
+  color: white;
+  border: none;
+  padding: 15px 25px;
+  font-size: 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+button:hover {
+  background: #4b42d9;
+}
+
+#status {
+  margin-top: 15px;
+  color: #444;
+  font-size: 14px;
+}
