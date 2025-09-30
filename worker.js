@@ -8,6 +8,15 @@ export default {
         try {
           const body = await request.json();
 
+          // تأكد أن مفتاح Stripe موجود
+          if (!env.STRIPE_SECRET_KEY) {
+            return new Response(
+              JSON.stringify({ error: "Missing STRIPE_SECRET_KEY in environment" }),
+              { status: 500, headers: { "Content-Type": "application/json" } }
+            );
+          }
+
+          // تجهيز البيانات
           const params = new URLSearchParams();
           params.append("mode", "payment");
           params.append("payment_method_types[]", "card");
@@ -18,9 +27,9 @@ export default {
           params.append("line_items[0][price_data][unit_amount]", String(body.amount || 500));
           params.append("line_items[0][quantity]", String(body.quantity || 1));
 
-          // ✅ روابط النجاح والإلغاء
-          params.append("success_url", body.success_url || "https://devry7yy.org/success");
-          params.append("cancel_url", body.cancel_url || "https://devry7yy.org/cancel");
+          // ✅ روابط النجاح والإلغاء (مربوطة على GitHub Pages)
+          params.append("success_url", body.success_url || "https://ry7y.github.io/success.html");
+          params.append("cancel_url", body.cancel_url || "https://ry7y.github.io/cancel.html");
 
           // ✅ استدعاء Stripe API
           const resp = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -48,10 +57,10 @@ export default {
 
       // ✅ صفحة اختبار: لو فتحت الرابط الرئيسي
       if (url.pathname === "/" || url.pathname === "") {
-        return new Response(
-          JSON.stringify({ status: "ok", message: "RY7 Payment Worker is running 🚀" }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
+        return new Response("RY7 Payment Worker is running 🚀", {
+          status: 200,
+          headers: { "Content-Type": "text/plain" },
+        });
       }
 
       // ✅ أي مسار آخر غير موجود
