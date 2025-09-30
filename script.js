@@ -10,17 +10,25 @@ document.getElementById("pay").addEventListener("click", async () => {
         amount: 500, // 5.00 USD
         currency: "usd",
         description: "خدمة RY7 - تجربة",
-success_url: "https://devry7yy.org/success.html",
-cancel_url: "https://devry7yy.org/cancel.html"
+        success_url: "https://ry7y.github.io/success.html",
+        cancel_url: "https://ry7y.github.io/cancel.html"
       })
     });
 
+    if (!res.ok) {
+      // فشل الاستجابة من السيرفر
+      const errText = await res.text();
+      status.innerText = "⚠️ خطأ من السيرفر: " + errText;
+      return;
+    }
+
     const data = await res.json();
+
     if (data.url) {
       status.innerText = "✅ جاري تحويلك لصفحة الدفع...";
       window.location.href = data.url;
     } else {
-      status.innerText = "⚠️ خطأ: " + JSON.stringify(data);
+      status.innerText = "⚠️ لم يتم استلام رابط جلسة الدفع: " + JSON.stringify(data);
     }
   } catch (err) {
     status.innerText = "🚨 خطأ في الاتصال: " + err.message;
