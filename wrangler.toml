@@ -1,22 +1,22 @@
-name = "ry7yy-telegram-bot"
+name = "ry7yy-ipa-bot"
 main = "worker.js"
-compatibility_date = "2025-09-30"
+compatibility_date = "2024-01-01"
 
-[vars]
-# 🔑 توكن البوت (ضعه من الـ Dashboard كسِر)
-#env.BOT_TOKEN
-
-# 📣 اسم القناة بدون @
-CHANNEL_USERNAME = "RY7DY"
-
-# ✅ IDs إضافية مسموح لها حتى بدون اشتراك بالقناة (مفصولة بفواصل)
-# مثال: "282719074,1234567890"
-OWNER_IDS = "282719074"
-
-# 📦 حد إعادة الرفع عبر Bot API (افتراضي 48MB)
-# يمكن تغييره (مثلاً 52428800 = 50MB)
-BOT_UPLOAD_LIMIT_BYTES = "48"
-
+# KV Namespace for session storage
 [[kv_namespaces]]
 binding = "SESSION_KV"
-id = "3a1ae8dadcf04ece8ac977e870b242e5"
+id = "YOUR_KV_NAMESPACE_ID"
+
+# R2 Bucket for large file storage
+[[r2_buckets]]
+binding = "IPA_BUCKET"
+bucket_name = "ipa-files"
+
+# Environment variables (secrets)
+[vars]
+CHANNEL_USERNAME = "RY7DY"
+BOT_UPLOAD_LIMIT_BYTES = "50000000"
+
+# Secrets (set via: wrangler secret put <NAME>)
+# BOT_TOKEN = "your_telegram_bot_token"
+# OWNER_IDS = "123456789,987654321"
