@@ -5,7 +5,7 @@ compatibility_date = "2024-01-01"
 # KV Namespace for session storage
 [[kv_namespaces]]
 binding = "SESSION_KV"
-id = "YOUR_KV_NAMESPACE_ID"
+id = "3a1ae8dadcf04ece8ac977e870b242e5"
 
 # R2 Bucket for large file storage
 [[r2_buckets]]
