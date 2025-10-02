@@ -493,20 +493,46 @@ async function sendDocumentWithBuffers({ botToken, chatId, fileBuffer, thumbBuff
   if (!data.ok) throw new Error(data.description || `HTTP ${res.status}`);
 }
 
-/* ===== HTML بسيط لرفع الملفات الكبيرة ===== */
-function renderUploadHTML(token){
-  return `<!doctype html>
-<html lang="ar"><meta charset="utf-8"/>
-<title>رفع ملف IPA — RY7YY</title>
-<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:24px;max-width:680px;margin:auto}</style>
-<h2>رفع ملف IPA (رابط مؤقت)</h2>
-<p>اختر ملف IPA (وأيقونة اختيارية). بعد الرفع سيصلك الملف على تيليجرام مع رابط التنزيل.</p>
-<form method="post" enctype="multipart/form-data">
-  <div><label>ملف IPA: <input name="ipa" type="file" accept=".ipa" required></label></div>
-  <div style="margin-top:10px"><label>صورة (اختياري): <input name="thumb" type="file" accept="image/*"></label></div>
-  <div style="margin-top:10px"><label>الاسم المطلوب: <input name="filename" type="text" placeholder="RY7YY.ipa"></label></div>
-  <button style="margin-top:16px">رفع الآن</button>
-</form>
-<p style="margin-top:16px;color:#666">هذا الرابط مخصص ومؤقت. الرمز: ${token}</p>
-</html>`;
+return new Response("Not Found", { status: 404 });
+
+/* ========== صفحة رفع الملفات عبر /u/:id ========== */
+if (url.pathname.startsWith("/u/")) {
+  const token = url.pathname.slice(3); // أخذ الكود من الرابط
+  if (!token) return new Response("Bad request", { status: 400 });
+
+  // HTML بسيط يعرض فورم رفع IPA + صورة اختيارية
+  const html = `
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <title>رفع ملف IPA (رابط مؤقت)</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #fafafa; }
+    h2 { color: #444; }
+    input { margin: 8px 0; }
+    button { padding: 8px 16px; background: #0078ff; color: #fff; border: none; cursor: pointer; }
+    button:hover { background: #005fcc; }
+  </style>
+</head>
+<body>
+  <h2>📦 رفع IPA (رابط مؤقت)</h2>
+  <form method="POST" action="/upload" enctype="multipart/form-data">
+    <label>📂 ملف IPA:</label><br/>
+    <input type="file" name="ipa" required /><br/><br/>
+
+    <label>🖼️ صورة (اختياري):</label><br/>
+    <input type="file" name="thumb" /><br/><br/>
+
+    <label>✍️ الاسم المطلوب:</label><br/>
+    <input type="text" name="filename" value="app.ipa" required /><br/><br/>
+
+    <input type="hidden" name="token" value="${token}" />
+    <button type="submit">رفع الآن</button>
+  </form>
+  <p style="margin-top:20px; color:#666;">هذا الرابط مخصص ومؤقت. الرمز: ${token}</p>
+</body>
+</html>
+`;
+  return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
