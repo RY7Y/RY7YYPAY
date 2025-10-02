@@ -4,7 +4,7 @@ compatibility_date = "2025-09-30"
 
 [vars]
 # 🔑 توكن البوت (ضعه من الـ Dashboard كسِر)
-# BOT_TOKEN = "xxxxx"
+#env.BOT_TOKEN
 
 # 📣 اسم القناة بدون @
 CHANNEL_USERNAME = "RY7DY"
