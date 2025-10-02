@@ -1,8 +1,4 @@
-name = "ry7-pay"
+name = "ry7yy-telegram-bot"
 main = "worker.js"
 compatibility_date = "2025-09-30"
-
-[vars]
-# هنا يقرأ المفتاح من الإعدادات في Cloudflare Dashboard
-# إذا ما تبغى تكتب المفتاح هنا، يكفي تحطه من المتغيرات (Variables & Secrets)
-STRIPE_SECRET_KEY = ""
+env.BOT_TOKEN
