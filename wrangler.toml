@@ -1,4 +1,12 @@
 name = "ry7yy-telegram-bot"
 main = "worker.js"
 compatibility_date = "2025-09-30"
-#env.BOT_TOKEN
+
+[vars]
+# 🔑 ضع توكن البوت هنا (أو خزّنه كسِر في Cloudflare dashboard)
+BOT_TOKEN = "ضع_توكن_البوت_هنا"
+CHANNEL_USERNAME = "RY7DY"   # بدون @
+
+[[kv_namespaces]]
+binding = "SESSION_KV"
+id = "ry7yy-session"
