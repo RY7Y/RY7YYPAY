@@ -6,7 +6,7 @@ export default {
     const CHANNEL_USERNAME = env.CHANNEL_USERNAME || "RY7DY"; // بدون @
     if (!BOT_TOKEN) return json({ error: "Missing BOT_TOKEN" }, 500);
 
-    // تنزيل باسم مخصص عبر توكن مؤقت (لا يدمج الصورة بالملف؛ فقط يعيد تسمية عند التنزيل)
+    // ✅ تنزيل عبر توكن مؤقت (يحافظ على الاسم الجديد)
     if (url.pathname.startsWith("/d/")) {
       const token = url.pathname.split("/d/")[1];
       if (!token) return new Response("Bad token", { status: 400 });
@@ -26,7 +26,7 @@ export default {
       return new Response(tgResp.body, { status: 200, headers });
     }
 
-    // Webhook تيليجرام
+    // ✅ Webhook تيليجرام
     if (url.pathname === "/telegram" && request.method === "POST") {
       const update = await request.json().catch(() => null);
       if (!update) return json({ ok: false, error: "Invalid update" }, 400);
@@ -37,7 +37,7 @@ export default {
       const chatId = msg.chat.id;
       const userId = msg.from?.id;
 
-      // تحقّق اشتراك القناة
+      // ✅ تحقق الاشتراك بالقناة
       const subscribed = await isMember(BOT_TOKEN, CHANNEL_USERNAME, userId);
       if (!subscribed) {
         await sendMessage(
@@ -51,10 +51,10 @@ export default {
         return json({ ok: true });
       }
 
-      // حالة المستخدم
+      // ✅ حالة المستخدم (جلسة)
       let state =
         (await env.SESSION_KV.get(`state:${chatId}`, { type: "json" })) || {
-          step: "awaiting_ipa", // awaiting_ipa -> awaiting_image -> awaiting_name
+          step: "awaiting_ipa",
           ipa_file_id: null,
           ipa_path: null,
           image_file_id: null,
@@ -62,13 +62,14 @@ export default {
           filename: null
         };
 
-      // أوامر عامة
+      // ✅ إعادة الضبط
       if (msg.text === "/reset") {
         await env.SESSION_KV.delete(`state:${chatId}`);
         await sendMessage(BOT_TOKEN, chatId, "🔄 تم تصفير الجلسة. أرسل /start للبدء.");
         return json({ ok: true });
       }
 
+      // ✅ البداية
       if (msg.text === "/start") {
         state = {
           step: "awaiting_ipa",
@@ -84,17 +85,17 @@ export default {
           chatId,
           `👋 أهلاً بك في بوت RY7YY IPA!
 
-الخطوات:
-1) أرسل ملف IPA (حتى ~2GB).
-2) أرسل صورة تُعرض كأيقونة داخل تيليجرام.
-3) أرسل اسم الملف المطلوب (مثل: RY7YY.ipa)
+📌 الخطوات:
+1️⃣ أرسل ملف IPA (حتى ~2GB).
+2️⃣ أرسل صورة لتكون الأيقونة.
+3️⃣ أرسل اسم الملف المطلوب (مثل: RY7YY.ipa).
 
-سنُعيد لك الملف داخل تيليجرام **مع الأيقونة** (بدون توقيع). يمكنك توقيعه لاحقًا عبر TrollStore أو Esign.`
+سيُعاد لك الملف داخل تيليجرام **مع الأيقونة** (بدون توقيع).`
         );
         return json({ ok: true });
       }
 
-      // استقبال IPA
+      // ✅ استقبال IPA
       if (msg.document && state.step === "awaiting_ipa") {
         const doc = msg.document;
         if (!/\.ipa$/i.test(doc.file_name || "")) {
@@ -102,7 +103,7 @@ export default {
           return json({ ok: true });
         }
         if ((doc.file_size || 0) > 2 * 1024 * 1024 * 1024) {
-          await sendMessage(BOT_TOKEN, chatId, "❌ الحجم كبير. السقف ~2GB عبر تيليجرام.");
+          await sendMessage(BOT_TOKEN, chatId, "❌ الحجم كبير. الحد ~2GB عبر تيليجرام.");
           return json({ ok: true });
         }
 
@@ -111,11 +112,11 @@ export default {
         state.ipa_path = fileInfo.file_path;
         state.step = "awaiting_image";
         await env.SESSION_KV.put(`state:${chatId}`, JSON.stringify(state));
-        await sendMessage(BOT_TOKEN, chatId, "✅ تم استلام الـIPA.\nأرسل الآن *صورة* للأيقونة.", "Markdown");
+        await sendMessage(BOT_TOKEN, chatId, "✅ تم استلام IPA.\n📸 أرسل الآن صورة للأيقونة.");
         return json({ ok: true });
       }
 
-      // استقبال صورة
+      // ✅ استقبال صورة
       if (msg.photo && state.step === "awaiting_image") {
         const bestPhoto = msg.photo[msg.photo.length - 1];
         const fileInfo = await getFile(BOT_TOKEN, bestPhoto.file_id);
@@ -124,20 +125,20 @@ export default {
         state.image_path = fileInfo.file_path;
         state.step = "awaiting_name";
         await env.SESSION_KV.put(`state:${chatId}`, JSON.stringify(state));
-        await sendMessage(BOT_TOKEN, chatId, "✅ تم استلام الصورة.\nأرسل اسم الملف المطلوب مثل: `RY7YY.ipa`", "Markdown");
+        await sendMessage(BOT_TOKEN, chatId, "✅ تم استلام الصورة.\n✍️ أرسل اسم الملف مثل: `RY7YY.ipa`", "Markdown");
         return json({ ok: true });
       }
 
-      // استقبال اسم الملف ثم: (1) روابط مباشرة, (2) إرسال الملف داخل تيليجرام مع الأيقونة
+      // ✅ استقبال اسم الملف + إرسال الملف داخل تيليجرام
       if (msg.text && state.step === "awaiting_name") {
         const desired = (msg.text || "").trim();
         if (!/\.ipa$/i.test(desired)) {
-          await sendMessage(BOT_TOKEN, chatId, "⚠️ اسم غير صالح. يجب أن ينتهي بـ .ipa");
+          await sendMessage(BOT_TOKEN, chatId, "⚠️ الاسم غير صالح. يجب أن ينتهي بـ .ipa");
           return json({ ok: true });
         }
         state.filename = desired;
 
-        // 1) اصنع رابط تنزيل بالاسم الجديد (ساري 10 دقائق)
+        // 🔗 رابط تنزيل مؤقت (10 دقائق)
         const token = cryptoRandomId();
         await env.SESSION_KV.put(
           `dl:${token}`,
@@ -147,14 +148,14 @@ export default {
         const renamedDownload = `${url.origin}/d/${token}`;
         const imageDirect = `https://api.telegram.org/file/bot${BOT_TOKEN}/${state.image_path}`;
 
-        // رسالة تجهيز
+        // رسالة انتظار
         const prepping = await sendMessage(
           BOT_TOKEN,
           chatId,
-          `⏳ تجهيز الملف وإرسال نسخة داخل تيليجرام مع الأيقونة...\n\n🔗 تنزيل بالاسم الجديد: ${renamedDownload}\n📸 رابط الصورة: ${imageDirect}`
+          `⏳ تجهيز الملف...\n\n🔗 رابط التنزيل: ${renamedDownload}\n📸 الصورة: ${imageDirect}`
         );
 
-        // 2) إعادة رفع الملف داخل تيليجرام + thumbnail (بث متدفق)
+        // ✅ إرسال الملف داخل تيليجرام مع الأيقونة
         try {
           await sendDocumentWithThumbnail({
             botToken: BOT_TOKEN,
@@ -168,18 +169,17 @@ export default {
             BOT_TOKEN,
             chatId,
             prepping.message_id,
-            `✅ تم الإرسال!\n\n🔗 تنزيل بالاسم الجديد: ${renamedDownload}\n📸 الصورة: ${imageDirect}\n\nملاحظة: الملف غير موقّع – يمكنك توقيعه عبر TrollStore أو Esign.`
+            `✅ تم الإرسال!\n\n🔗 ${renamedDownload}\n📸 ${imageDirect}\n\n⚠️ الملف غير موقّع – يمكنك توقيعه عبر TrollStore أو Esign.`
           );
         } catch (e) {
           await editMessageText(
             BOT_TOKEN,
             chatId,
             prepping.message_id,
-            `⚠️ أرسلنا الروابط بنجاح، لكن رفع النسخة داخل تيليجرام فشل: ${e.message}\nيمكنك استخدام رابط التنزيل بالأعلى.`
+            `⚠️ أرسلنا الروابط بنجاح، لكن رفع الملف داخل تيليجرام فشل: ${e.message}`
           );
         }
 
-        // انهِ الجلسة
         await env.SESSION_KV.delete(`state:${chatId}`);
         return json({ ok: true });
       }
@@ -192,9 +192,11 @@ export default {
       return json({ ok: true });
     }
 
+    // ✅ صفحة البداية
     if (url.pathname === "/" || url.pathname === "") {
-      return new Response("RY7YY Telegram Bot ✅", { status: 200 });
+      return new Response("RY7YY Telegram Bot 🚀 يعمل الآن", { status: 200 });
     }
+
     return new Response("Not Found", { status: 404 });
   }
 };
@@ -254,10 +256,6 @@ async function getFile(token, fileId) {
   return data.result;
 }
 
-/**
- * يرسل sendDocument مع thumbnail بالرفع المتدفق (stream)
- * بدون حفظ الملف في الذاكرة.
- */
 async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath, filename }) {
   const ipaUrl = `https://api.telegram.org/file/bot${botToken}/${ipaPath}`;
   const imgUrl = `https://api.telegram.org/file/bot${botToken}/${imagePath}`;
@@ -271,38 +269,26 @@ async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath,
   const boundary = "----RY7YYBoundary" + cryptoRandomId();
   const encoder = new TextEncoder();
 
-  // دوال صغيرة لبناء أجزاء multipart
   const partHeader = (name, filename, contentType) =>
     `--${boundary}\r\nContent-Disposition: form-data; name="${name}"${filename ? `; filename="${filename}"` : ""}\r\n${contentType ? `Content-Type: ${contentType}\r\n` : ""}\r\n`;
 
   const tail = `\r\n--${boundary}--\r\n`;
 
-  // نبني ReadableStream يرسل:
-  // [حقول نصية] -> [هيدر IPA] + باينري IPA -> [هيدر thumbnail] + باينري الصورة -> [ذيل]
   const bodyStream = new ReadableStream({
     async start(controller) {
-      // حقول نصية
       controller.enqueue(encoder.encode(partHeader("chat_id") + chatId + "\r\n"));
-      controller.enqueue(encoder.encode(partHeader("caption") + "📦 نسخة بالداخل مع الأيقونة (بدون توقيع)\r\n"));
-      // أحيانًا تيليجرام يطلب thumb/thumbnail؛ نرسل لاحقًا مع الصورة كملف ثانٍ.
+      controller.enqueue(encoder.encode(partHeader("caption") + "📦 ملف مع الأيقونة (بدون توقيع)\r\n"));
 
       // ملف IPA
       controller.enqueue(encoder.encode(partHeader("document", sanitizeFilename(filename || "app.ipa"), "application/octet-stream")));
       await pipeStream(ipaResp.body, controller);
       controller.enqueue(encoder.encode("\r\n"));
 
-      // الصورة كـ thumbnail (نرسل كلا الاسمين للتوافق)
+      // الأيقونة كـ thumbnail
       controller.enqueue(encoder.encode(partHeader("thumbnail", "thumb.jpg", "image/jpeg")));
       await pipeStream(imgResp.body, controller);
       controller.enqueue(encoder.encode("\r\n"));
 
-      controller.enqueue(encoder.encode(partHeader("thumb", "thumb.jpg", "image/jpeg")));
-      // نحتاج إعادة تيار الصورة مرة ثانية للاسم الآخر؛ لذا نعيد جلبه بسرعة:
-      const imgResp2 = await fetch(imgUrl);
-      await pipeStream(imgResp2.body, controller);
-      controller.enqueue(encoder.encode("\r\n"));
-
-      // نهاية
       controller.enqueue(encoder.encode(tail));
       controller.close();
     }
