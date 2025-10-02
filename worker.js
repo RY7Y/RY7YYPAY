@@ -2,20 +2,16 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // ==== المتغيرات ====
-    const BOT_TOKEN = env.BOT_TOKEN;
+    // ====== الإعدادات ======
+    const BOT_TOKEN = env.BOT_TOKEN;                                  // (إلزامي)
+    const CHANNEL_USERNAME = String(env.CHANNEL_USERNAME || "RY7DY")  // بدون @
+      .replace(/^@/, "");
+    const OWNER_IDS = parseOwnerIds(env.OWNER_IDS);                   // مثال: "12345678,87654321"
+    const BOT_UPLOAD_LIMIT = Number(env.BOT_UPLOAD_LIMIT_BYTES || 48 * 1024 * 1024); // حد رفع multipart التقريبي
+
     if (!BOT_TOKEN) return json({ error: "Missing BOT_TOKEN" }, 500);
 
-    // اسم القناة بدون @
-    const CHANNEL_USERNAME = (env.CHANNEL_USERNAME || "RY7DY").replace(/^@/, "");
-    // قائمة IDs مسموح لهم دائمًا حتى لو البوت لا يستطيع فحص القناة (خاصة/بدون صلاحيات)
-    const OWNER_IDS = parseOwnerIds(env.OWNER_IDS);
-
-    // حد إعادة الرفع عبر Bot API (Multipart) — الافتراضي ~48MB
-    const BOT_UPLOAD_LIMIT =
-      Number(env.BOT_UPLOAD_LIMIT_BYTES || 48 * 1024 * 1024) || 48 * 1024 * 1024;
-
-    // ==== تنزيل باسم مخصص عبر توكن مؤقت ====
+    // ====== تنزيل باسم مخصص عبر توكن مؤقت (لا يغيّر الأيقونة ولا يوقّع) ======
     if (url.pathname.startsWith("/d/")) {
       const token = url.pathname.split("/d/")[1];
       if (!token) return new Response("Bad token", { status: 400 });
@@ -35,7 +31,7 @@ export default {
       return new Response(tgResp.body, { status: 200, headers });
     }
 
-    // ==== Webhook تيليجرام ====
+    // ====== Webhook تيليجرام ======
     if (url.pathname === "/telegram" && request.method === "POST") {
       const update = await request.json().catch(() => null);
       if (!update) return json({ ok: false, error: "Invalid update" }, 400);
@@ -46,7 +42,7 @@ export default {
       const chatId = msg.chat.id;
       const userId = msg.from?.id;
 
-      // ✅ التحقق من الاشتراك مع السماح للمالِك/القائمة البيضاء
+      // ✅ التحقق من الاشتراك (القناة) مع السماح لقائمة المالكين/المشرفين
       const allowed = await isAllowedUser({
         token: BOT_TOKEN,
         channelUserName: CHANNEL_USERNAME,
@@ -63,10 +59,10 @@ export default {
         return json({ ok: true });
       }
 
-      // ==== حالة المستخدم (جلسة) ====
+      // ====== حالة/جلسة المستخدم ======
       let state =
         (await env.SESSION_KV.get(`state:${chatId}`, { type: "json" })) || {
-          step: "awaiting_ipa",        // awaiting_ipa -> awaiting_image -> awaiting_name
+          step: "awaiting_ipa",  // awaiting_ipa -> awaiting_image -> awaiting_name
           ipa_file_id: null,
           ipa_path: null,
           ipa_size: 0,
@@ -75,7 +71,7 @@ export default {
           filename: null
         };
 
-      // أوامر عامة
+      // ====== أوامر عامة ======
       if (msg.text === "/reset") {
         await env.SESSION_KV.delete(`state:${chatId}`);
         await sendMessage(BOT_TOKEN, chatId, "🔄 تم تصفير الجلسة. أرسل /start للبدء.");
@@ -100,16 +96,16 @@ export default {
 
 📌 الخطوات:
 1️⃣ أرسل ملف IPA (أي حجم).
-2️⃣ أرسل صورة لتكون أيقونة داخل تيليجرام.
+2️⃣ أرسل صورة/Thumbnail لعرضها كأيقونة داخل تيليجرام فقط.
 3️⃣ أرسل اسم الملف المطلوب (مثل: RY7YY.ipa).
 
-• إن كان الحجم مناسبًا لإعادة الرفع عبر البوت سنرسل لك الملف **بالاسم الجديد ومع الأيقونة** داخل تيليجرام.
-• إن كان كبيرًا جدًا، سنوفر لك **رابط تنزيل بالاسم الجديد** وسنرسل الملف داخل تيليجرام بالـ file_id (قد يظهر بالاسم الأصلي).`
+✅ إذا سمح حجم الملف سنعيد رفعه داخل تيليجرام **بالاسم الجديد مع الأيقونة**.
+⚠️ إذا كان كبيرًا جدًا لرفع multipart، سنرسل لك **رابط تنزيل بالاسم الجديد** ثم نعيد إرسال نفس الملف داخل تيليجرام بالـ file_id (قد يظهر بالاسم الأصلي – هذا حد من Telegram Bot API).`
         );
         return json({ ok: true });
       }
 
-      // ==== استقبال IPA ====
+      // ====== استقبال IPA ======
       if (msg.document && state.step === "awaiting_ipa") {
         const doc = msg.document;
         if (!/\.ipa$/i.test(doc.file_name || "")) {
@@ -117,18 +113,23 @@ export default {
           return json({ ok: true });
         }
 
-        // نجلب مسار الملف (يعمل لأي حجم لأن تيليجرام خزّنه)
-        const fileInfo = await getFile(BOT_TOKEN, doc.file_id);
+        const fileInfo = await getFile(BOT_TOKEN, doc.file_id); // ينجح لأي حجم لأن الملف على خوادم تيليجرام
         state.ipa_file_id = doc.file_id;
         state.ipa_path = fileInfo.file_path;
         state.ipa_size = Number(doc.file_size || 0);
         state.step = "awaiting_image";
         await env.SESSION_KV.put(`state:${chatId}`, JSON.stringify(state));
-        await sendMessage(BOT_TOKEN, chatId, "✅ تم استلام IPA.\n📸 أرسل الآن صورة للأيقونة.");
+
+        await sendMessage(
+          BOT_TOKEN,
+          chatId,
+          `✅ تم حفظ ملف IPA (${formatBytes(state.ipa_size)}).`
+        );
+        await sendMessage(BOT_TOKEN, chatId, "📸 الآن أرسل صورة (ستظهر كأيقونة داخل تيليجرام فقط).");
         return json({ ok: true });
       }
 
-      // ==== استقبال صورة ====
+      // ====== استقبال صورة ======
       if (msg.photo && state.step === "awaiting_image") {
         const bestPhoto = msg.photo[msg.photo.length - 1];
         const fileInfo = await getFile(BOT_TOKEN, bestPhoto.file_id);
@@ -137,16 +138,13 @@ export default {
         state.image_path = fileInfo.file_path;
         state.step = "awaiting_name";
         await env.SESSION_KV.put(`state:${chatId}`, JSON.stringify(state));
-        await sendMessage(
-          BOT_TOKEN,
-          chatId,
-          "✅ تم استلام الصورة.\n✍️ أرسل اسم الملف مثل: `RY7YY.ipa`",
-          "Markdown"
-        );
+
+        await sendMessage(BOT_TOKEN, chatId, "✅ تم حفظ الصورة.");
+        await sendMessage(BOT_TOKEN, chatId, "✍️ أرسل الآن اسم الملف مثل: `RY7YY.ipa`", "Markdown");
         return json({ ok: true });
       }
 
-      // ==== استقبال الاسم + المعالجة ====
+      // ====== استقبال الاسم + مؤقت عدّاد + الإرسال ======
       if (msg.text && state.step === "awaiting_name") {
         const desired = (msg.text || "").trim();
         if (!/\.ipa$/i.test(desired)) {
@@ -155,7 +153,7 @@ export default {
         }
         state.filename = desired;
 
-        // رابط تنزيل مؤقت بالاسم الجديد (10 دقائق)
+        // نحفظ رابط تنزيل بالاسم الجديد (صالح 10 دقائق)
         const token = cryptoRandomId();
         await env.SESSION_KV.put(
           `dl:${token}`,
@@ -163,22 +161,29 @@ export default {
           { expirationTtl: 600 }
         );
         const renamedDownload = `${url.origin}/d/${token}`;
-        const imageDirect = state.image_path
-          ? `https://api.telegram.org/file/bot${BOT_TOKEN}/${state.image_path}`
-          : null;
 
-        // رسالة انتظار
-        const prepping = await sendMessage(
+        // نعرض عدّاد تنازلي حقيقي عبر editMessageText
+        const prep = await sendMessage(
           BOT_TOKEN,
           chatId,
-          `⏳ تجهيز الملف...\n\n🔗 رابط التنزيل (اسم جديد): ${renamedDownload}${
-            imageDirect ? `\n📸 الصورة: ${imageDirect}` : ""
-          }`
+          `⏳ جاري التحضير...\n🔗 رابط التنزيل بالاسم الجديد: ${renamedDownload}`
         );
 
+        // عدّاد 10 ثوانٍ
+        for (let s = 10; s >= 0; s--) {
+          await sleep(1000);
+          await editMessageText(
+            BOT_TOKEN,
+            chatId,
+            prep.message_id,
+            `⏳ التحضير: ${s} ثانية...\n🔗 ${renamedDownload}`
+          ).catch(() => {});
+        }
+
+        // إرسال حسب الحجم
         try {
           if (state.ipa_size && state.ipa_size <= BOT_UPLOAD_LIMIT) {
-            // ✔️ مناسب لإعادة الرفع مع thumbnail والاسم الجديد
+            // ✔️ يمكن إعادة الرفع مع اسم جديد + thumbnail (الأيقونة داخل تيليجرام فقط)
             await sendDocumentWithThumbnail({
               botToken: BOT_TOKEN,
               chatId,
@@ -190,16 +195,16 @@ export default {
             await editMessageText(
               BOT_TOKEN,
               chatId,
-              prepping.message_id,
-              `✅ أرسلنا الملف داخل تيليجرام بالاسم الجديد ومع الأيقونة.\n\n🔗 رابط مباشر أيضًا: ${renamedDownload}`
+              prep.message_id,
+              `✅ تم الإرسال داخل تيليجرام بالاسم الجديد والأيقونة.\n🔗 أيضًا: ${renamedDownload}`
             );
           } else {
-            // ⚠️ كبير: نرسل الرابط + نعيد إرسال نفس الملف بالـ file_id (اسم/أيقونة أصلية)
+            // ⚠️ كبير جدًا لرفع multipart: نرسل الرابط + نفس الملف بالـ file_id
             await editMessageText(
               BOT_TOKEN,
               chatId,
-              prepping.message_id,
-              `ℹ️ الملف كبير لرفع Multipart مع تغيير الاسم/الأيقونة.\n\n🔗 حمّله بالاسم الجديد: ${renamedDownload}\n\nسنرسل لك نفس الملف الآن داخل تيليجرام (قد يظهر بالاسم الأصلي).`
+              prep.message_id,
+              `ℹ️ الملف كبير لإعادة الرفع باسم جديد عبر Bot API.\n🔗 حمّل بالاسم الجديد: ${renamedDownload}\nسيتم إرسال نفس الملف الآن داخل تيليجرام (قد يظهر بالاسم الأصلي).`
             );
 
             await sendDocumentByFileId({
@@ -207,24 +212,24 @@ export default {
               chatId,
               fileId: state.ipa_file_id,
               caption:
-                "📦 نسخة داخل تيليجرام (قد تظهر بالاسم الأصلي لقيود Bot API). استخدم الرابط أعلاه للاسم الجديد."
+                "📦 نسخة داخل تيليجرام (قد يظهر الاسم الأصلي لقيود Bot API). استخدم الرابط أعلاه للاسم الجديد."
             });
           }
         } catch (e) {
           await editMessageText(
             BOT_TOKEN,
             chatId,
-            prepping.message_id,
+            prep.message_id,
             `⚠️ تعذّر الإرسال داخل تيليجرام: ${e.message}\n🔗 تقدر تحمل بالاسم الجديد من هنا: ${renamedDownload}`
           );
         }
 
-        // إنهاء الجلسة
+        // نهاية الجلسة
         await env.SESSION_KV.delete(`state:${chatId}`);
         return json({ ok: true });
       }
 
-      // رد افتراضي
+      // ====== رد افتراضي ======
       if (msg.text && !["/start", "/reset"].includes(msg.text)) {
         await sendMessage(BOT_TOKEN, chatId, "ℹ️ اكتب /start للبدء أو /reset لإعادة الضبط.");
       }
@@ -232,7 +237,7 @@ export default {
       return json({ ok: true });
     }
 
-    // صفحة فحص
+    // صفحة فحص بسيطة
     if (url.pathname === "/" || url.pathname === "") {
       return new Response("RY7YY Telegram Bot ✅", { status: 200 });
     }
@@ -271,6 +276,17 @@ function parseOwnerIds(raw) {
   );
 }
 
+function formatBytes(n) {
+  if (!n || n <= 0) return "0 B";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(n) / Math.log(1024));
+  return `${(n / Math.pow(1024, i)).toFixed(1)} ${u[i]}`;
+}
+
+async function sleep(ms) {
+  await new Promise(r => setTimeout(r, ms));
+}
+
 /** السماح لمن هم: creator/administrator/member في القناة، أو رقمهم ضمن OWNER_IDS */
 async function isAllowedUser({ token, channelUserName, userId, ownerIds }) {
   try {
@@ -279,7 +295,7 @@ async function isAllowedUser({ token, channelUserName, userId, ownerIds }) {
     const resp = await fetch(url);
     const data = await resp.json().catch(() => ({}));
     if (!data.ok) {
-      // قناة خاصة/البوت ليس إدمن ⇒ نسمح فقط لمن هم في القائمة البيضاء
+      // قناة خاصة/البوت ليس إدمن ⇒ نسمح فقط لمن هم بالقائمة البيضاء
       return ownerIds && ownerIds.has(Number(userId));
     }
     const st = data.result?.status;
@@ -318,7 +334,7 @@ async function getFile(token, fileId) {
   return data.result;
 }
 
-/** يرفع IPA كـ multipart مع thumbnail واسم جديد (لملفات ≤ حد الرفع). */
+/** يرفع IPA كـ multipart مع thumbnail واسم جديد (يعمل فقط ≤ BOT_UPLOAD_LIMIT) */
 async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath, filename }) {
   const ipaUrl = `https://api.telegram.org/file/bot${botToken}/${ipaPath}`;
   const ipaResp = await fetch(ipaUrl);
@@ -360,7 +376,7 @@ async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath,
       await pipeStream(ipaResp.body, controller);
       controller.enqueue(encoder.encode("\r\n"));
 
-      // الأيقونة كـ thumbnail (لو متوفرة)
+      // الأيقونة كـ thumbnail (اختياري)
       if (imgResp && imgResp.body) {
         controller.enqueue(encoder.encode(partHeader("thumbnail", "thumb.jpg", "image/jpeg")));
         await pipeStream(imgResp.body, controller);
@@ -379,10 +395,12 @@ async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath,
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!data.ok) throw new Error(`sendDocument failed: ${data.description || res.status}`);
+  if (!data.ok) {
+    throw new Error(`sendDocument failed: ${data.description || res.status}`);
+  }
 }
 
-/** يرسل نفس الملف بالـ file_id (مفيد للملفات الكبيرة جدًا). */
+/** يرسل نفس الملف المخزّن لدى تيليجرام بالـ file_id (يدعم أحجام ضخمة) */
 async function sendDocumentByFileId({ botToken, chatId, fileId, caption }) {
   const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
     method: "POST",
