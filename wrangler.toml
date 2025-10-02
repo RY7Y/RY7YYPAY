@@ -11,7 +11,7 @@ id = "3a1ae8dadcf04ece8ac977e870b242e5"
 [[d1_databases]]
 binding = "IPA_DB"
 database_name = "ipa-files"
-database_id = "replace-with-your-d1-database-id"
+database_id = "83a8cf2e-25a9-4df5-9906-7ceb8db7ace5"
 
 # Environment variables (secrets)
 [vars]
