@@ -7,15 +7,18 @@ compatibility_date = "2024-01-01"
 binding = "SESSION_KV"
 id = "3a1ae8dadcf04ece8ac977e870b242e5"
 
-# R2 Bucket for large file storage
-[[r2_buckets]]
-binding = "IPA_BUCKET"
-bucket_name = "ipa-files"
+# D1 Database for large file storage (بديل R2)
+[[d1_databases]]
+binding = "IPA_DB"
+database_name = "ipa-files"
+database_id = "replace-with-your-d1-database-id"
 
 # Environment variables (secrets)
 [vars]
 CHANNEL_USERNAME = "RY7DY"
 BOT_UPLOAD_LIMIT_BYTES = "50000000"
+# يمكنك إضافة مفتاح سري لاستخدام مسارات /upload مع اليوزربوت
+# UPLOAD_SECRET = "your_secret_here"
 
 # Secrets (set via: wrangler secret put <NAME>)
 # BOT_TOKEN = "your_telegram_bot_token"
