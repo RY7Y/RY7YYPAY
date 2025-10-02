@@ -169,26 +169,35 @@ export default {
       }
 
       if (msg.text === "/start" || msg.text === "/link") {
-        if (!state.upload_token) {
-          state.upload_token = cryptoRandomId();
-          await KV.put(`upl:${state.upload_token}`, JSON.stringify({ chat_id: chatId }), { expirationTtl: 86400 });
-        }
-        const upl = `${url.origin}/u/${state.upload_token}`;
+} else {
+  // كبير: لا يمكن تحميله عبر Bot API
+  if (!state.upload_token) {
+    state.upload_token = cryptoRandomId();
+  }
 
-        state.step = "awaiting_ipa";
-        state.ipa_size = 0;
-        state.db_key = null;
-        state.thumb_key = null;
-        state.filename = null;
-        await KV.put(`state:${chatId}`, JSON.stringify(state));
+  // نحفظ تذكرة كاملة
+  await KV.put(`upl:${state.upload_token}`, JSON.stringify({
+    chat_id: chatId,
+    original_name: doc.file_name || "app.ipa",
+    size: state.ipa_size
+  }), { expirationTtl: 86400 });
 
-        await sendMessage(
-          BOT_TOKEN,
-          chatId,
-          `👋 أهلاً بك في بوت RY7YY IPA!\n\n📌 **الخطوات**:\n1️⃣ أرسل **ملف IPA**.\n2️⃣ أرسل **صورة/Thumbnail** (اختياري).\n3️⃣ أرسل **اسم الملف** مثل: \`RY7YY.ipa\`.\n\n⚠️ إن كان الملف كبيرًا بحيث لا يمكن تنزيله عبر Bot API:\nاستخدم رابط الرفع الآمن الخاص بك:\n${upl}\n\nبعد الرفع، سيصلك الإرسال والرابط تلقائيًا.`
-        );
-        return json({ ok: true });
-      }
+  const upl = `${url.origin}/u/${state.upload_token}`;
+
+  await editMessageText(
+    BOT_TOKEN,
+    chatId,
+    status.message_id,
+    `⚠️ الملف كبير (${formatBytes(state.ipa_size)}).\n⬆️ استخدم رابط الرفع:\n${upl}`
+  );
+
+  // نجهّز المرحلة التالية
+  state.step = "awaiting_name";
+  state.db_key = null;
+  await KV.put(`state:${chatId}`, JSON.stringify(state));
+
+  return json({ ok: true });
+}
 
       /* ================== استقبال IPA ================== */
       if (msg.document && state.step === "awaiting_ipa") {
