@@ -493,8 +493,6 @@ async function sendDocumentWithBuffers({ botToken, chatId, fileBuffer, thumbBuff
   if (!data.ok) throw new Error(data.description || `HTTP ${res.status}`);
 }
 
-return new Response("Not Found", { status: 404 });
-
 /* ========== صفحة رفع الملفات عبر /u/:id ========== */
 if (url.pathname.startsWith("/u/")) {
   const token = url.pathname.slice(3); // أخذ الكود من الرابط
@@ -535,4 +533,7 @@ if (url.pathname.startsWith("/u/")) {
 </html>
 `;
   return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
+}
+
+return new Response("Not Found", { status: 404 });
 }
