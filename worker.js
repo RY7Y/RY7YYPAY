@@ -493,12 +493,7 @@ async function sendDocumentWithBuffers({ botToken, chatId, fileBuffer, thumbBuff
   if (!data.ok) throw new Error(data.description || `HTTP ${res.status}`);
 }
 
-/* ========== صفحة رفع الملفات عبر /u/:id ========== */
-if (url.pathname.startsWith("/u/")) {
-  const token = url.pathname.slice(3); // أخذ الكود من الرابط
-  if (!token) return new Response("Bad request", { status: 400 });
-
-  // HTML بسيط يعرض فورم رفع IPA + صورة اختيارية
+/* ========== صفحة رفع الملفات عبر /// HTML بسيط يعرض فورم رفع IPA + صورة اختيارية
   const html = `
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
