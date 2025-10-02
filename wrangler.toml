@@ -4,7 +4,7 @@ compatibility_date = "2025-09-30"
 
 [vars]
 # 🔑 ضع توكن البوت هنا (أو خزّنه كسِر في Cloudflare dashboard)
-BOT_TOKEN = "ضع_توكن_البوت_هنا"
+#env.BOT_TOKEN
 CHANNEL_USERNAME = "RY7DY"   # بدون @
 
 [[kv_namespaces]]
