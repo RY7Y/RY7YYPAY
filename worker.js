@@ -32,15 +32,19 @@ export default {
     }
 
     // ====== Webhook تيليجرام ======
-    if (url.pathname === "/telegram" && request.method === "POST") {
-      const update = await request.json().catch(() => null);
-      if (!update) return json({ ok: false, error: "Invalid update" }, 400);
+if (url.pathname === "/telegram" && request.method === "POST") {
+  const update = await request.json().catch(() => null);
 
-      const msg = update.message || update.edited_message;
-      if (!msg) return json({ ok: true });
+  // 🟢 اطبع التحديث كامل في الـ Logs
+  console.log("📩 Telegram Update:", JSON.stringify(update, null, 2));
 
-      const chatId = msg.chat.id;
-      const userId = msg.from?.id;
+  if (!update) return json({ ok: false, error: "Invalid update" }, 400);
+
+  const msg = update.message || update.edited_message;
+  if (!msg) return json({ ok: true });
+
+  const chatId = msg.chat.id;
+  const userId = msg.from?.id;
 
       // ✅ التحقق من الاشتراك (القناة) مع السماح لقائمة المالكين/المشرفين
       const allowed = await isAllowedUser({
