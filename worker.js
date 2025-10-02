@@ -2,59 +2,48 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // ✅ Telegram Webhook Endpoint
     if (url.pathname === "/telegram" && request.method === "POST") {
       try {
         const update = await request.json();
+        console.log("📩 Update:", JSON.stringify(update, null, 2));
 
-        // لو فيه رسالة
         if (update.message) {
           const chatId = update.message.chat.id;
 
-          // لو فيه نص
+          // نص
           if (update.message.text) {
-            const text = update.message.text.trim();
-
-            if (text === "/start") {
+            if (update.message.text === "/start") {
               await sendMessage(env.BOT_TOKEN, chatId,
-                "👋 *أهلاً بك في بوت RY7YY*\n\n" +
-                "📲 أرسل لي ملف *IPA* أو صورة، وسأرجع لك رابط التحميل المباشر.\n\n" +
-                "✨ مميزات:\n- يدعم الصور\n- يدعم الملفات (IPA, ZIP, PDF...)\n- روابط مباشرة للتحميل",
-                "Markdown"
+                "👋 أهلاً بك في بوت RY7YY\n\n📲 أرسل لي ملف IPA أو صورة وسأعطيك رابط مباشر للتحميل.\n\n✨ مميزات:\n- يدعم الصور\n- يدعم الملفات (IPA, ZIP, PDF...)\n- روابط مباشرة للتحميل"
               );
             } else {
-              await sendMessage(env.BOT_TOKEN, chatId, `📩 رسالتك:\n\`${text}\``, "Markdown");
+              await sendMessage(env.BOT_TOKEN, chatId, `📩 استلمت رسالتك:\n${update.message.text}`);
             }
           }
 
-          // لو فيه صورة
+          // صور
           if (update.message.photo) {
             const fileId = update.message.photo.pop().file_id;
             const fileInfo = await getFile(env.BOT_TOKEN, fileId);
             const fileUrl = `https://api.telegram.org/file/bot${env.BOT_TOKEN}/${fileInfo.file_path}`;
-
-            await sendMessage(env.BOT_TOKEN, chatId,
-              `📸 *تم استلام الصورة!*\n\n[تحميل الصورة](${fileUrl})`,
-              "Markdown"
-            );
+            await sendMessage(env.BOT_TOKEN, chatId, `📸 الصورة جاهزة!\n${fileUrl}`);
           }
 
-          // لو فيه ملف (IPA أو ZIP أو غيره)
+          // ملفات (IPA, ZIP...)
           if (update.message.document) {
             const fileId = update.message.document.file_id;
-            const fileName = update.message.document.file_name || "ملف بدون اسم";
+            const fileName = update.message.document.file_name || "ملف";
             const fileInfo = await getFile(env.BOT_TOKEN, fileId);
             const fileUrl = `https://api.telegram.org/file/bot${env.BOT_TOKEN}/${fileInfo.file_path}`;
-
             await sendMessage(env.BOT_TOKEN, chatId,
-              `📦 *تم استلام الملف*\n\n📂 الاسم: \`${fileName}\`\n\n[تحميل مباشر](${fileUrl})`,
-              "Markdown"
+              `📦 تم استلام الملف: ${fileName}\n🔗 رابط التحميل:\n${fileUrl}`
             );
           }
         }
 
         return new Response("OK", { status: 200 });
       } catch (err) {
+        console.error("❌ Error:", err);
         return new Response(JSON.stringify({ error: err.message }), {
           status: 500,
           headers: { "Content-Type": "application/json" },
@@ -62,9 +51,8 @@ export default {
       }
     }
 
-    // ✅ صفحة اختبار
     if (url.pathname === "/" || url.pathname === "") {
-      return new Response("🚀 RY7YY Telegram Bot يعمل بنجاح", {
+      return new Response("RY7YY Bot 🚀 يعمل الآن", {
         status: 200,
         headers: { "Content-Type": "text/plain" },
       });
@@ -74,21 +62,17 @@ export default {
   },
 };
 
-/// ✅ دوال مساعدة
-async function sendMessage(token, chatId, text, parseMode = null) {
-  const payload = { chat_id: chatId, text: text };
-  if (parseMode) payload.parse_mode = parseMode;
-
+async function sendMessage(token, chatId, text) {
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ chat_id: chatId, text }),
   });
 }
 
 async function getFile(token, fileId) {
   const resp = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
   const data = await resp.json();
-  if (!data.ok) throw new Error("❌ فشل في جلب معلومات الملف من تيليجرام");
+  if (!data.ok) throw new Error("Failed to fetch file info");
   return data.result;
 }
