@@ -1,91 +1,89 @@
 export default {
   async fetch(request, env, ctx) {
-    try {
-      const url = new URL(request.url);
+    const url = new URL(request.url);
 
-      // ✅ إعداد ترويسات CORS جاهزة
-      const corsHeaders = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      };
+    // ✅ Telegram Webhook Endpoint
+    if (url.pathname === "/telegram" && request.method === "POST") {
+      try {
+        const update = await request.json();
 
-      // ✅ دعم preflight (خيارات CORS)
-      if (request.method === "OPTIONS") {
-        return new Response(null, { status: 204, headers: corsHeaders });
-      }
+        // لو فيه رسالة
+        if (update.message) {
+          const chatId = update.message.chat.id;
 
-      // ✅ Endpoint: إنشاء جلسة دفع جديدة
-      if (request.method === "POST" && url.pathname === "/create-checkout") {
-        try {
-          const body = await request.json();
+          // لو فيه نص
+          if (update.message.text) {
+            const text = update.message.text;
 
-          // تأكد أن مفتاح Stripe موجود
-          if (!env.STRIPE_SECRET_KEY) {
-            return new Response(
-              JSON.stringify({ error: "Missing STRIPE_SECRET_KEY in environment" }),
-              { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            if (text === "/start") {
+              await sendMessage(env.BOT_TOKEN, chatId, 
+                "👋 أهلاً بك!\n\nأرسل لي ملف IPA أو صورة وسأحفظها لك 📲"
+              );
+            } else {
+              await sendMessage(env.BOT_TOKEN, chatId, `📩 رسالتك: ${text}`);
+            }
+          }
+
+          // لو فيه صورة
+          if (update.message.photo) {
+            const fileId = update.message.photo.pop().file_id;
+            const fileInfo = await getFile(env.BOT_TOKEN, fileId);
+            const fileUrl = `https://api.telegram.org/file/bot${env.BOT_TOKEN}/${fileInfo.file_path}`;
+
+            await sendMessage(env.BOT_TOKEN, chatId, 
+              `📸 تم استلام الصورة!\n\nرابط التحميل المباشر:\n${fileUrl}`
             );
           }
 
-          // تجهيز البيانات
-          const params = new URLSearchParams();
-          params.append("mode", "payment");
-          params.append("payment_method_types[]", "card");
+          // لو فيه ملف (IPA أو ZIP أو غيره)
+          if (update.message.document) {
+            const fileId = update.message.document.file_id;
+            const fileName = update.message.document.file_name || "file";
+            const fileInfo = await getFile(env.BOT_TOKEN, fileId);
+            const fileUrl = `https://api.telegram.org/file/bot${env.BOT_TOKEN}/${fileInfo.file_path}`;
 
-          // ✅ بيانات المنتج
-          params.append("line_items[0][price_data][currency]", body.currency || "usd");
-          params.append("line_items[0][price_data][product_data][name]", body.description || "منتج تجريبي");
-          params.append("line_items[0][price_data][unit_amount]", String(body.amount || 500));
-          params.append("line_items[0][quantity]", String(body.quantity || 1));
-
-          // ✅ روابط النجاح والإلغاء (GitHub Pages)
-          params.append("success_url", body.success_url || "https://ry7y.github.io/success.html");
-          params.append("cancel_url", body.cancel_url || "https://ry7y.github.io/cancel.html");
-
-          // ✅ استدعاء Stripe API
-          const resp = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}`,
-              "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: params.toString(),
-          });
-
-          const data = await resp.json();
-
-          return new Response(JSON.stringify(data, null, 2), {
-            status: resp.status,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        } catch (err) {
-          return new Response(
-            JSON.stringify({ error: "Stripe request failed", details: err.message }),
-            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+            await sendMessage(env.BOT_TOKEN, chatId, 
+              `📦 تم استلام الملف: ${fileName}\n\nرابط التحميل المباشر:\n${fileUrl}`
+            );
+          }
         }
-      }
 
-      // ✅ صفحة اختبار: لو فتحت الرابط الرئيسي
-      if (url.pathname === "/" || url.pathname === "") {
-        return new Response("RY7 Payment Worker is running 🚀", {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "text/plain" },
+        return new Response("OK", { status: 200 });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
         });
       }
-
-      // ✅ أي مسار آخر غير موجود
-      return new Response(
-        JSON.stringify({ error: "Not Found", path: url.pathname }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-
-    } catch (err) {
-      return new Response(
-        JSON.stringify({ error: "Worker crashed", details: err.message }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
     }
+
+    // ✅ صفحة اختبار
+    if (url.pathname === "/" || url.pathname === "") {
+      return new Response("RY7YY Telegram Bot 🚀 شغال", {
+        status: 200,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+
+    return new Response("Not Found", { status: 404 });
   },
 };
+
+/// ✅ دوال مساعدة
+async function sendMessage(token, chatId, text) {
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: text,
+    }),
+  });
+}
+
+async function getFile(token, fileId) {
+  const resp = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
+  const data = await resp.json();
+  if (!data.ok) throw new Error("Failed to fetch file info");
+  return data.result;
+}
