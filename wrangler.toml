@@ -9,4 +9,4 @@ CHANNEL_USERNAME = "RY7DY"   # بدون @
 
 [[kv_namespaces]]
 binding = "SESSION_KV"
-id = "ry7yy-session"
+id = "3a1ae8dadcf04ece8ac977e870b242e5"
