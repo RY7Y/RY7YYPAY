@@ -3,7 +3,9 @@ export default {
     const url = new URL(request.url);
 
     const BOT_TOKEN = env.BOT_TOKEN;
-    const CHANNEL_USERNAME = env.CHANNEL_USERNAME || "RY7DY"; // بدون @
+    const CHANNEL_USERNAME = (env.CHANNEL_USERNAME || "RY7DY").replace(/^@/, "");
+    const OWNER_IDS = parseOwnerIds(env.OWNER_IDS); // مجموعة أرقام IDs من المتغير
+
     if (!BOT_TOKEN) return json({ error: "Missing BOT_TOKEN" }, 500);
 
     // ✅ تنزيل عبر توكن مؤقت (يحافظ على الاسم الجديد)
@@ -37,9 +39,15 @@ export default {
       const chatId = msg.chat.id;
       const userId = msg.from?.id;
 
-      // ✅ تحقق الاشتراك بالقناة
-      const subscribed = await isMember(BOT_TOKEN, CHANNEL_USERNAME, userId);
-      if (!subscribed) {
+      // ✅ التحقق من الاشتراك مع السماح للمالِك/المشرفين/القائمة البيضاء
+      const allowed = await isAllowedUser({
+        token: BOT_TOKEN,
+        channelUserName: CHANNEL_USERNAME,
+        userId,
+        ownerIds: OWNER_IDS
+      });
+
+      if (!allowed) {
         await sendMessage(
           BOT_TOKEN,
           chatId,
@@ -220,13 +228,43 @@ function cryptoRandomId() {
   return [...bytes].map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function isMember(token, channelUserName, userId) {
-  const url = `https://api.telegram.org/bot${token}/getChatMember?chat_id=@${channelUserName}&user_id=${userId}`;
-  const resp = await fetch(url);
-  const data = await resp.json().catch(() => ({}));
-  if (!data.ok) return false;
-  const st = data.result?.status;
-  return ["creator", "administrator", "member"].includes(st);
+function parseOwnerIds(raw) {
+  if (!raw) return new Set();
+  return new Set(
+    String(raw)
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(s => Number(s))
+      .filter(n => Number.isFinite(n))
+  );
+}
+
+/**
+ * يسمح لمَن:
+ * - وضعهم في القناة: creator / administrator / member
+ * - أو رقمهم ضمن OWNER_IDS (قائمة بيضاء)
+ * إذا فشل طلب getChatMember بسبب قناة خاصة/الصلاحيات، نسمح للـ OWNER_IDS.
+ */
+async function isAllowedUser({ token, channelUserName, userId, ownerIds }) {
+  try {
+    // السماح الفوري لو بالـ whitelist
+    if (ownerIds && ownerIds.has(Number(userId))) return true;
+
+    const url = `https://api.telegram.org/bot${token}/getChatMember?chat_id=@${channelUserName}&user_id=${userId}`;
+    const resp = await fetch(url);
+    const data = await resp.json().catch(() => ({}));
+
+    if (!data.ok) {
+      // لو القناة خاصة/البوت ليس إدمن — نسمح لقائمة المالكين فقط، والباقي نرفض
+      return ownerIds && ownerIds.has(Number(userId));
+    }
+    const st = data.result?.status;
+    return ["creator", "administrator", "member"].includes(st);
+  } catch {
+    // في حال حدوث خطأ شبكي: نسمح للـ whitelist فقط
+    return ownerIds && ownerIds.has(Number(userId));
+  }
 }
 
 async function sendMessage(token, chatId, text, parseMode) {
@@ -280,7 +318,11 @@ async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath,
       controller.enqueue(encoder.encode(partHeader("caption") + "📦 ملف مع الأيقونة (بدون توقيع)\r\n"));
 
       // ملف IPA
-      controller.enqueue(encoder.encode(partHeader("document", sanitizeFilename(filename || "app.ipa"), "application/octet-stream")));
+      controller.enqueue(
+        encoder.encode(
+          partHeader("document", sanitizeFilename(filename || "app.ipa"), "application/octet-stream")
+        )
+      );
       await pipeStream(ipaResp.body, controller);
       controller.enqueue(encoder.encode("\r\n"));
 
