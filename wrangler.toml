@@ -1,4 +1,4 @@
 name = "ry7yy-telegram-bot"
 main = "worker.js"
 compatibility_date = "2025-09-30"
-env.BOT_TOKEN
+#env.BOT_TOKEN
