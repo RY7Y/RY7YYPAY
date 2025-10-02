@@ -17,8 +17,6 @@ database_id = "83a8cf2e-25a9-4df5-9906-7ceb8db7ace5"
 [vars]
 CHANNEL_USERNAME = "RY7DY"
 BOT_UPLOAD_LIMIT_BYTES = "50000000"
-# يمكنك إضافة مفتاح سري لاستخدام مسارات /upload مع اليوزربوت
-# UPLOAD_SECRET = "your_secret_here"
 
 # Secrets (set via: wrangler secret put <NAME>)
 # BOT_TOKEN = "your_telegram_bot_token"
