@@ -15,7 +15,7 @@ OWNER_IDS = "282719074"
 
 # 📦 حد إعادة الرفع عبر Bot API (افتراضي 48MB)
 # يمكن تغييره (مثلاً 52428800 = 50MB)
-BOT_UPLOAD_LIMIT_BYTES = "50331648"
+BOT_UPLOAD_LIMIT_BYTES = "48"
 
 [[kv_namespaces]]
 binding = "SESSION_KV"
