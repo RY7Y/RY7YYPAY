@@ -1,31 +1,29 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-
-    /* ================== الإعدادات ================== */
-    const BOT_TOKEN = env.BOT_TOKEN;                                      // إلزامي
+    const BOT_TOKEN = env.BOT_TOKEN;
     const CHANNEL_USERNAME = String(env.CHANNEL_USERNAME || "RY7DY").replace(/^@/, "");
-    const OWNER_IDS = parseOwnerIds(env.OWNER_IDS);                       // "123,456"
-    // إن كانت القيمة صغيرة (مثل 50) نعتبرها MB، وإلا نفترض أنها بايت:
+    const OWNER_IDS = parseOwnerIds(env.OWNER_IDS);
     const RAW_LIMIT = Number(env.BOT_UPLOAD_LIMIT_BYTES || 50);
-    const BOT_UPLOAD_LIMIT =
-      RAW_LIMIT <= 1000 ? RAW_LIMIT * 1024 * 1024 : RAW_LIMIT;            // bytes
+    const BOT_UPLOAD_LIMIT = RAW_LIMIT <= 1000 ? RAW_LIMIT * 1024 * 1024 : RAW_LIMIT; // bytes
     const KV = env.SESSION_KV;
 
     if (!BOT_TOKEN) return json({ error: "Missing BOT_TOKEN" }, 500);
 
-    /* ================== مسارات عامة ================== */
+    // صحّة التشغيل
     if (url.pathname === "/" || url.pathname === "") {
-      return new Response(
-        "RY7YY IPA Bot is running ✅",
-        { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } }
-      );
+      return new Response("RY7YY IPA Bot ✅", { status: 200 });
     }
 
-    /* ================== Webhook تيليجرام ================== */
+    // Webhook
     if (url.pathname === "/telegram" && request.method === "POST") {
       const update = await request.json().catch(() => null);
       if (!update) return json({ ok: false }, 400);
+
+      // منع التكرار لكل Update
+      const evtId = String(update.update_id ?? cryptoRandomId());
+      if (await KV.get(`evt:${evtId}`)) return json({ ok: true });
+      await KV.put(`evt:${evtId}`, "1", { expirationTtl: 60 });
 
       const msg = update.message || update.edited_message;
       if (!msg) return json({ ok: true });
@@ -33,13 +31,7 @@ export default {
       const chatId = msg.chat.id;
       const userId = msg.from?.id;
 
-      // قفل منع التكرار لكل رسالة
-      const eventId = update.update_id ?? cryptoRandomId();
-      const already = await KV.get(`evt:${eventId}`);
-      if (already) return json({ ok: true });
-      await KV.put(`evt:${eventId}`, "1", { expirationTtl: 60 });
-
-      // تحقق اشتراك
+      // التحقق من الاشتراك (مع استثناء الملاك)
       const allowed = await isAllowedUser({
         token: BOT_TOKEN,
         channelUserName: CHANNEL_USERNAME,
@@ -51,22 +43,17 @@ export default {
         await sendMessage(
           BOT_TOKEN,
           chatId,
-          "🔒 للاستخدام يجب الانضمام أولًا إلى القناة:\nhttps://t.me/" + CHANNEL_USERNAME
+          [
+            "⚠️ يتطلب الاستخدام الانضمام إلى القناة:",
+            `https://t.me/${CHANNEL_USERNAME}`,
+            "",
+            "بعد الانضمام أرسل /start."
+          ].join("\n")
         );
         return json({ ok: true });
-      } else {
-        // رسالة “مشترك ✅” تُحذف بعد 3 ثواني
-        const ack = await sendMessage(
-          BOT_TOKEN,
-          chatId,
-          "تم التحقق ✅ — أهلًا بك!"
-        ).catch(() => null);
-        if (ack?.message_id) {
-          waitAndDelete(BOT_TOKEN, chatId, ack.message_id, 3000).catch(() => {});
-        }
       }
 
-      // حالة الجلسة
+      // جلسة
       let state =
         (await KV.get(`state:${chatId}`, { type: "json" })) || freshState();
 
@@ -75,21 +62,28 @@ export default {
         state = freshState();
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
-        // وضع أوامر البوت
+        // أوامر البوت لشريط الأوامر
         await setMyCommands(BOT_TOKEN).catch(() => {});
 
+        // إشعار “تم التحقق” مرة واحدة فقط كل 24 ساعة
+        const ackKey = `ack:${chatId}`;
+        if (!(await KV.get(ackKey))) {
+          const ack = await sendMessage(BOT_TOKEN, chatId, "تم التحقق ✅ — أهلاً بك!");
+          if (ack?.message_id) waitAndDelete(BOT_TOKEN, chatId, ack.message_id, 3000).catch(() => {});
+          await KV.put(ackKey, "1", { expirationTtl: 86400 });
+        }
+
+        await sendMessage(BOT_TOKEN, chatId, fancyWelcome());
         await sendMessage(
           BOT_TOKEN,
           chatId,
-          fancyWelcome()
+          [
+            "① أرسل **ملف IPA**.",
+            "② أرسل **صورة للأيقونة**.",
+            "③ أرسل **الاسم الجديد** مثل: `MyApp.ipa`."
+          ].join("\n"),
+          "Markdown"
         );
-
-        await sendMessage(
-          BOT_TOKEN,
-          chatId,
-          "① أرسل ملف IPA.\n② أرسل صورة للأيقونة.\n③ أرسل الاسم الجديد مثل: MyApp.ipa"
-        );
-
         return json({ ok: true });
       }
 
@@ -99,11 +93,7 @@ export default {
           chatId,
           helpText(),
           undefined,
-          {
-            inline_keyboard: [[
-              { text: "تواصل معنا", url: "https://t.me/RY7YY" }
-            ]]
-          }
+          { inline_keyboard: [[{ text: "تواصل معنا", url: "https://t.me/RY7YY" }]] }
         );
         return json({ ok: true });
       }
@@ -122,24 +112,24 @@ export default {
           return json({ ok: true });
         }
 
-        // استخدم getFile إذا أمكن للحصول على path لإعادة الرفع بالاسم الجديد
-        let filePath = null;
+        // نحاول الحصول على file_path (للملفات التي يمكن تنزيلها لإعادة رفعها باسم جديد)
+        let path = null;
         try {
           const info = await getFile(BOT_TOKEN, doc.file_id);
-          filePath = info?.file_path || null;
+          path = info?.file_path || null;
         } catch { /* نتجاهل */ }
 
         state.ipa_file_id = doc.file_id;
-        state.ipa_path = filePath;                // إن لم يوجد path سنرسل لاحقًا بالـ file_id
+        state.ipa_path = path; // إن لم يوجد path سنرسل لاحقًا عبر file_id
         state.ipa_size = Number(doc.file_size || 0);
         state.step = "awaiting_image";
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
-        await sendMessage(BOT_TOKEN, chatId, "تم استلام الملف. الآن أرسل صورة (أيقونة).");
+        await sendMessage(BOT_TOKEN, chatId, "تم استلام الملف. الآن أرسل صورة للأيقونة.");
         return json({ ok: true });
       }
 
-      /* ========== استقبال صورة ========== */
+      /* ========== استقبال الأيقونة ========== */
       if (msg.photo && state.step === "awaiting_image") {
         const best = msg.photo[msg.photo.length - 1];
         let imgPath = null;
@@ -149,7 +139,7 @@ export default {
         } catch { /* نتجاهل */ }
 
         state.image_file_id = best.file_id;
-        state.image_path = imgPath;               // نحاول استخدامها كـ thumbnail
+        state.image_path = imgPath;
         state.step = "awaiting_name";
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
@@ -157,30 +147,29 @@ export default {
         return json({ ok: true });
       }
 
-      /* ========== استقبال الاسم والإرسال مرة واحدة فقط ========== */
+      /* ========== استقبال الاسم + عدّاد + إرسال مرّة واحدة فقط ========== */
       if (msg.text && state.step === "awaiting_name") {
         const desired = (msg.text || "").trim();
         if (!/\.ipa$/i.test(desired)) {
           await sendMessage(BOT_TOKEN, chatId, "الاسم يجب أن ينتهي بـ .ipa");
           return json({ ok: true });
         }
-
-        // قفل تنفيذ كي لا نرسل مرّتين
-        const lockKey = `lock:${chatId}`;
-        if (await KV.get(lockKey)) return json({ ok: true });
-        await KV.put(lockKey, "1", { expirationTtl: 30 });
-
         state.filename = desired;
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
-        // عدّاد تحضير احترافي
-        const prep = await sendMessage(BOT_TOKEN, chatId, "جاري التحضير للإرسال داخل تيليجرام…");
+        // قفل منع التكرار
+        const lockKey = `lock:${chatId}`;
+        if (await KV.get(lockKey)) return json({ ok: true });
+        await KV.put(lockKey, "1", { expirationTtl: 60 });
+
+        const prep = await sendMessage(BOT_TOKEN, chatId, progressFrame(0));
         await sendChatAction(BOT_TOKEN, chatId, "upload_document").catch(() => {});
-        await fancyCountdown(BOT_TOKEN, chatId, prep.message_id, 8);
+        // عداد “خرافي” من 0 → 100 ثم يبدأ الإرسال
+        await liveProgress(BOT_TOKEN, chatId, prep.message_id, 100);
 
         try {
           if (state.ipa_path && state.ipa_size <= BOT_UPLOAD_LIMIT) {
-            // إعادة رفع باسم جديد + أيقونة (إن توفّر stream)
+            // إعادة رفع باسم جديد مع الأيقونة
             await sendDocumentWithThumbnail({
               botToken: BOT_TOKEN,
               chatId,
@@ -188,15 +177,9 @@ export default {
               imagePath: state.image_path,
               filename: state.filename
             });
-
-            await editMessageText(
-              BOT_TOKEN,
-              chatId,
-              prep.message_id,
-              "تم الإرسال بنجاح.\nالاسم: " + state.filename
-            );
+            await editMessageText(BOT_TOKEN, chatId, prep.message_id, "تم الإرسال بنجاح.\nالاسم: " + state.filename);
           } else {
-            // ملف كبير: إرسال بالـ file_id (لا يمكن تغيير الاسم – قيد Bot API)
+            // كبير: نرسل بالـ file_id (لا يمكن فرض اسم جديد عند الإرسال بالـ file_id — قيد Bot API)
             await sendDocumentByFileId({
               botToken: BOT_TOKEN,
               chatId,
@@ -204,7 +187,6 @@ export default {
               thumbFileId: state.image_file_id,
               caption: state.filename
             });
-
             await editMessageText(
               BOT_TOKEN,
               chatId,
@@ -213,29 +195,19 @@ export default {
             );
           }
         } catch (e) {
-          await editMessageText(
-            BOT_TOKEN,
-            chatId,
-            prep.message_id,
-            "تعذّر الإرسال: " + (e?.message || "خطأ غير معلوم")
-          );
+          await editMessageText(BOT_TOKEN, chatId, prep.message_id, "تعذّر الإرسال: " + (e?.message || "خطأ غير معلوم"));
         }
 
-        // إنهاء الجلسة ومنع أي تكرار
+        // إنهاء الجلسة
         await KV.delete(`state:${chatId}`);
         await KV.delete(lockKey);
         return json({ ok: true });
       }
 
-      // إظهار القائمة عند أي نص آخر
+      // رد افتراضي
       if (msg.text && !["/start", "/help", "/reset"].includes(msg.text)) {
-        await sendMessage(
-          BOT_TOKEN,
-          chatId,
-          "أرسل /start للبدء أو /help للمساعدة."
-        );
+        await sendMessage(BOT_TOKEN, chatId, "أرسل /start للبدء أو /help للمساعدة.");
       }
-
       return json({ ok: true });
     }
 
@@ -264,16 +236,6 @@ function json(obj, status = 200) {
   });
 }
 
-function sanitizeFilename(name) {
-  return name.replace(/[^a-zA-Z0-9._\u0600-\u06FF-]+/g, "_");
-}
-
-function cryptoRandomId() {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return [...bytes].map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
 function parseOwnerIds(raw) {
   if (!raw) return new Set();
   return new Set(
@@ -286,18 +248,66 @@ function parseOwnerIds(raw) {
   );
 }
 
-async function waitAndDelete(token, chatId, messageId, ms) {
-  await new Promise(r => setTimeout(r, ms));
-  await deleteMessage(token, chatId, messageId).catch(() => {});
+function cryptoRandomId() {
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  return [...b].map(x => x.toString(16).padStart(2, "0")).join("");
 }
 
-async function deleteMessage(token, chatId, messageId) {
-  await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, message_id: messageId })
-  });
+/* ========= رسائل أنيقة بدون إيموجي ========= */
+
+function fancyWelcome() {
+  return [
+    "┏━━━━━━━━━━━━━━━━━━━━━━┓",
+    "┃     RY7YY IPA Bot     ┃",
+    "┗━━━━━━━━━━━━━━━━━━━━━━┛",
+    "حوِّل ملف IPA لنسخة أنيقة داخل تيليجرام:",
+    "• إعادة تسمية احترافية",
+    "• أيقونة مخصّصة للرسالة",
+    "• خطوات بسيطة وسريعة",
+    "",
+    "ابدأ بإرسال الملف الآن…"
+  ].join("\n");
 }
+
+function helpText() {
+  return [
+    "╭─ مساعدة",
+    "│ 1) أرسل ملف IPA",
+    "│ 2) أرسل صورة للأيقونة",
+    "│ 3) أرسل الاسم الجديد مثل: MyApp.ipa",
+    "╰─ سيعيد البوت رفع الملف داخل تيليجرام بالاسم الجديد مع الأيقونة.",
+    "",
+    "ملاحظـة: عند الملفات الكبيرة جدًا يرسل البوت بالـ file_id (قد يظهر الاسم الأصلي لقيود المنصّة)."
+  ].join("\n");
+}
+
+/* ========= عدّاد تقدّم احترافي ========= */
+
+function progressFrame(pct) {
+  const width = 24;
+  const filled = Math.round((pct / 100) * width);
+  const bar = "█".repeat(filled) + "░".repeat(width - filled);
+  return [
+    "┌ التحضير للإرسال",
+    `│ [${bar}] ${pct}%`,
+    "└ يرجى الانتظار…"
+  ].join("\n");
+}
+
+async function liveProgress(token, chatId, messageId, steps = 100) {
+  // تحديث واقعي الشكل حتى 100%
+  const totalMs = 6000; // ~6 ثوانٍ
+  for (let i = 0; i <= steps; i++) {
+    const pct = i;
+    await editMessageText(token, chatId, messageId, progressFrame(pct)).catch(() => {});
+    // لتجنب Flood control لا نحدّث بسرعة عالية
+    const remain = totalMs / steps;
+    await new Promise(r => setTimeout(r, Math.max(40, remain)));
+  }
+}
+
+/* ========= Telegram Helpers ========= */
 
 async function setMyCommands(token) {
   const commands = [
@@ -310,52 +320,6 @@ async function setMyCommands(token) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ commands })
   });
-}
-
-function fancyWelcome() {
-  return [
-    "┏━━━━━━━━━━━━━━━━┓",
-    "┃   RY7YY IPA Bot   ┃",
-    "┗━━━━━━━━━━━━━━━━┛",
-    "حوّل ملف الـ IPA لنسخة أنيقة داخل تيليجرام:",
-    "• إعادة تسمية احترافية",
-    "• وضع أيقونة مخصصة",
-    "• عملية بسيطة وسريعة",
-    "",
-    "أرسل الملف الآن…"
-  ].join("\n");
-}
-
-function helpText() {
-  return [
-    "╭─ مساعده",
-    "│ 1) أرسل ملف IPA",
-    "│ 2) أرسل صورة للأيقونة",
-    "│ 3) أرسل الاسم الجديد مثل: MyApp.ipa",
-    "╰─ سيعيد البوت رفع الملف داخل تيليجرام بالاسم الجديد مع الأيقونة."
-  ].join("\n");
-}
-
-function progressFrame(pct) {
-  const width = 16;
-  const filled = Math.round((pct * width) / 100);
-  const bar = "█".repeat(filled) + "░".repeat(width - filled);
-  return `┌ التحضير\n│ [${bar}] ${pct}%\n└ يرجى الانتظار…`;
-}
-
-async function fancyCountdown(token, chatId, messageId, seconds) {
-  for (let i = seconds; i >= 0; i--) {
-    const pct = Math.round(((seconds - i) / seconds) * 100);
-    await editMessageText(token, chatId, messageId, progressFrame(pct)).catch(() => {});
-    await new Promise(r => setTimeout(r, 1000));
-  }
-}
-
-function formatBytes(n) {
-  if (!n || n <= 0) return "0 B";
-  const u = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(n) / Math.log(1024));
-  return `${(n / Math.pow(1024, i)).toFixed(1)} ${u[i]}`;
 }
 
 async function sendMessage(token, chatId, text, parseMode, replyMarkup) {
@@ -379,6 +343,18 @@ async function editMessageText(token, chatId, messageId, text) {
   });
 }
 
+async function deleteMessage(token, chatId, messageId) {
+  await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId })
+  });
+}
+async function waitAndDelete(token, chatId, messageId, ms) {
+  await new Promise(r => setTimeout(r, ms));
+  await deleteMessage(token, chatId, messageId).catch(() => {});
+}
+
 async function sendChatAction(token, chatId, action) {
   await fetch(`https://api.telegram.org/bot${token}/sendChatAction`, {
     method: "POST",
@@ -388,21 +364,18 @@ async function sendChatAction(token, chatId, action) {
 }
 
 async function getFile(token, fileId) {
-  const resp = await fetch(
-    `https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`
-  );
+  const resp = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
   const data = await resp.json().catch(() => ({}));
   if (!data.ok) throw new Error("getFile failed");
   return data.result;
 }
 
-/** يرفع IPA كـ multipart مع thumbnail واسم جديد (للملفات التي نملك لها file_path) */
+/** إعادة رفع باسم جديد مع thumbnail (يتطلب file_path من تيليجرام) */
 async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath, filename }) {
   const ipaUrl = `https://api.telegram.org/file/bot${botToken}/${ipaPath}`;
   const ipaResp = await fetch(ipaUrl);
   if (!ipaResp.ok || !ipaResp.body) throw new Error("Failed to fetch IPA stream");
 
-  // الصورة اختيارية — إن توفّر stream للصورة سنرفقها كـ thumbnail
   let imgResp = null;
   if (imagePath) {
     const imgUrl = `https://api.telegram.org/file/bot${botToken}/${imagePath}`;
@@ -411,41 +384,28 @@ async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath,
   }
 
   const boundary = "----RY7YYBoundary" + cryptoRandomId();
-  const encoder = new TextEncoder();
-
-  const partHeader = (name, filename, contentType) =>
-    `--${boundary}\r\nContent-Disposition: form-data; name="${name}"${
-      filename ? `; filename="${filename}"` : ""
-    }\r\n${contentType ? `Content-Type: ${contentType}\r\n` : ""}\r\n`;
+  const enc = new TextEncoder();
+  const part = (name, filename, ctype) =>
+    `--${boundary}\r\nContent-Disposition: form-data; name="${name}"${filename ? `; filename="${filename}"` : ""}\r\n${ctype ? `Content-Type: ${ctype}\r\n` : ""}\r\n`;
 
   const tail = `\r\n--${boundary}--\r\n`;
 
   const bodyStream = new ReadableStream({
     async start(controller) {
-      controller.enqueue(encoder.encode(partHeader("chat_id") + chatId + "\r\n"));
-      controller.enqueue(
-        encoder.encode(
-          partHeader("caption") + sanitizeFilename(filename || "app.ipa") + "\r\n"
-        )
-      );
+      controller.enqueue(enc.encode(part("chat_id") + chatId + "\r\n"));
+      controller.enqueue(enc.encode(part("caption") + sanitizeFilename(filename || "app.ipa") + "\r\n"));
 
-      // ملف IPA
-      controller.enqueue(
-        encoder.encode(
-          partHeader("document", sanitizeFilename(filename || "app.ipa"), "application/octet-stream")
-        )
-      );
+      controller.enqueue(enc.encode(part("document", sanitizeFilename(filename || "app.ipa"), "application/octet-stream")));
       await pipeStream(ipaResp.body, controller);
-      controller.enqueue(encoder.encode("\r\n"));
+      controller.enqueue(enc.encode("\r\n"));
 
-      // الأيقونة كـ thumbnail (اختياري)
       if (imgResp && imgResp.body) {
-        controller.enqueue(encoder.encode(partHeader("thumbnail", "thumb.jpg", "image/jpeg")));
+        controller.enqueue(enc.encode(part("thumbnail", "thumb.jpg", "image/jpeg")));
         await pipeStream(imgResp.body, controller);
-        controller.enqueue(encoder.encode("\r\n"));
+        controller.enqueue(enc.encode("\r\n"));
       }
 
-      controller.enqueue(encoder.encode(tail));
+      controller.enqueue(enc.encode(tail));
       controller.close();
     }
   });
@@ -455,20 +415,13 @@ async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath,
     headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
     body: bodyStream
   });
-
   const data = await res.json().catch(() => ({}));
-  if (!data.ok) {
-    throw new Error(`sendDocument failed: ${data.description || res.status}`);
-  }
+  if (!data.ok) throw new Error(data.description || `HTTP ${res.status}`);
 }
 
-/** إرسال عبر file_id (للملفات الكبيرة جدًّا) */
+/** إرسال بواسطة file_id (للملفات الكبيرة جدًا) */
 async function sendDocumentByFileId({ botToken, chatId, fileId, thumbFileId, caption }) {
-  const body = {
-    chat_id: chatId,
-    document: fileId,
-    caption: caption || ""
-  };
+  const body = { chat_id: chatId, document: fileId, caption: caption || "" };
   if (thumbFileId) body.thumbnail = thumbFileId;
 
   let resp = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
@@ -478,7 +431,6 @@ async function sendDocumentByFileId({ botToken, chatId, fileId, thumbFileId, cap
   });
   let data = await resp.json().catch(() => ({}));
   if (!data.ok && thumbFileId) {
-    // إعادة المحاولة بدون thumbnail إذا رفضتها Bot API
     const resp2 = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -498,17 +450,14 @@ async function pipeStream(srcReadable, controller) {
   }
 }
 
-/** السماح لمن هم: creator/administrator/member في القناة، أو رقمهم ضمن OWNER_IDS */
+/* ========= تحقق الاشتراك ========= */
 async function isAllowedUser({ token, channelUserName, userId, ownerIds }) {
   try {
     if (ownerIds && ownerIds.has(Number(userId))) return true;
     const url = `https://api.telegram.org/bot${token}/getChatMember?chat_id=@${channelUserName}&user_id=${userId}`;
     const resp = await fetch(url);
     const data = await resp.json().catch(() => ({}));
-    if (!data.ok) {
-      // قناة خاصة/البوت ليس إدمن ⇒ نسمح فقط لمن هم بالقائمة البيضاء
-      return ownerIds && ownerIds.has(Number(userId));
-    }
+    if (!data.ok) return ownerIds && ownerIds.has(Number(userId));
     const st = data.result?.status;
     return ["creator", "administrator", "member"].includes(st);
   } catch {
