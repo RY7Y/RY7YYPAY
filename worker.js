@@ -51,7 +51,18 @@ export default {
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
         await setMyCommands(BOT_TOKEN).catch(() => {});
+
         await sendMessage(BOT_TOKEN, chatId, fancyWelcome());
+        await sendMessage(
+          BOT_TOKEN,
+          chatId,
+          [
+            "① أرسل ملف IPA.",
+            "② أرسل صورة للأيقونة.",
+            "③ أرسل الاسم الجديد مثل: `MyApp.ipa`."
+          ].join("\n"),
+          "Markdown"
+        );
         return json({ ok: true });
       }
 
@@ -63,6 +74,12 @@ export default {
           undefined,
           { inline_keyboard: [[{ text: "تواصل معنا", url: "https://t.me/RY7YY" }]] }
         );
+        return json({ ok: true });
+      }
+
+      if (msg.text === "/reset") {
+        await KV.delete(`state:${chatId}`);
+        await sendMessage(BOT_TOKEN, chatId, "تمت إعادة الضبط.");
         return json({ ok: true });
       }
 
@@ -117,7 +134,7 @@ export default {
 
         const prep = await sendMessage(BOT_TOKEN, chatId, progressFrame(0));
 
-        // 🔥 عداد بسيط 10 خطوات × ثانية واحدة = 10 ثواني
+        // 🔥 عداد 10 ثواني فقط
         await liveProgress(BOT_TOKEN, chatId, prep.message_id, 10, 10000);
 
         try {
@@ -129,13 +146,28 @@ export default {
             filename: state.filename
           });
 
-          await editMessageText(BOT_TOKEN, chatId, prep.message_id, "✅ تم الإرسال بنجاح!\n📂 الاسم: " + state.filename);
+          await editMessageText(
+            BOT_TOKEN,
+            chatId,
+            prep.message_id,
+            "✅ تم الإرسال بنجاح!\n📂 الاسم: " + state.filename + "\n\nأرسل /start للبداية من جديد."
+          );
         } catch (e) {
-          await editMessageText(BOT_TOKEN, chatId, prep.message_id, "⚠️ تعذّر الإرسال: " + (e?.message || "خطأ غير معلوم"));
+          await editMessageText(
+            BOT_TOKEN,
+            chatId,
+            prep.message_id,
+            "⚠️ تعذّر الإرسال: " + (e?.message || "خطأ غير معلوم") + "\n\nأرسل /start للمحاولة من جديد."
+          );
         }
 
+        // 🛑 إنهاء الجلسة
         await KV.delete(`state:${chatId}`);
         return json({ ok: true });
+      }
+
+      if (msg.text && !["/start", "/help", "/reset"].includes(msg.text)) {
+        await sendMessage(BOT_TOKEN, chatId, "أرسل /start للبدء أو /help للمساعدة.");
       }
 
       return json({ ok: true });
@@ -146,12 +178,36 @@ export default {
 };
 
 /* =================== أدوات مساعدة =================== */
+
 function freshState() {
-  return { step: "awaiting_ipa", ipa_file_id: null, ipa_path: null, image_file_id: null, image_path: null, filename: null };
+  return {
+    step: "awaiting_ipa",
+    ipa_file_id: null,
+    ipa_path: null,
+    ipa_size: 0,
+    image_file_id: null,
+    image_path: null,
+    filename: null
+  };
 }
 
 function json(obj, status = 200) {
-  return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "Content-Type": "application/json" }
+  });
+}
+
+function parseOwnerIds(raw) {
+  if (!raw) return new Set();
+  return new Set(
+    String(raw)
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(s => Number(s))
+      .filter(n => Number.isFinite(n))
+  );
 }
 
 function cryptoRandomId() {
