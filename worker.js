@@ -56,7 +56,7 @@ export default {
         if (!(await KV.get(ackKey))) {
           const ack = await sendMessage(BOT_TOKEN, chatId, "تم التحقق ✅ — أهلاً بك!");
           if (ack?.message_id) waitAndDelete(BOT_TOKEN, chatId, ack.message_id, 3000).catch(() => {});
-          await KV.put(ackKey, "1", { expirationTtl: 86400 }); // يوم كامل
+          await KV.put(ackKey, "1", { expirationTtl: 86400 });
         }
 
         await sendMessage(BOT_TOKEN, chatId, fancyWelcome());
@@ -142,11 +142,11 @@ export default {
 
         const lockKey = `lock:${chatId}`;
         if (await KV.get(lockKey)) return json({ ok: true });
-        await KV.put(lockKey, "1", { expirationTtl: 120 });
+        await KV.put(lockKey, "1", { expirationTtl: 300 });
 
         const prep = await sendMessage(BOT_TOKEN, chatId, progressFrame(0));
 
-        // ✅ الآن العداد يكتمل تماماً قبل رفع الملف
+        // 🔥 العداد يشتغل للنهاية وبعدين يبدأ رفع الملف
         await liveProgress(BOT_TOKEN, chatId, prep.message_id, 100);
 
         try {
@@ -163,19 +163,16 @@ export default {
           await editMessageText(BOT_TOKEN, chatId, prep.message_id, "⚠️ تعذّر الإرسال: " + (e?.message || "خطأ غير معلوم"));
         }
 
-        // 🛑 إنهاء الجلسة فقط بعد رفع الملف
         await KV.delete(`state:${chatId}`);
         await KV.delete(lockKey);
         return json({ ok: true });
       }
 
-      return json({ ok: true });
-    }
-    
-    // رد افتراضي
+      // رد افتراضي هنا داخل /telegram
       if (msg.text && !["/start", "/help", "/reset"].includes(msg.text)) {
         await sendMessage(BOT_TOKEN, chatId, "أرسل /start للبدء أو /help للمساعدة.");
       }
+
       return json({ ok: true });
     }
 
