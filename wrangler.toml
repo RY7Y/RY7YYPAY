@@ -1,4 +1,4 @@
-name = "ry7yy-ipa-bot"
+name = "ry7-pay"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
