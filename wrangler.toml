@@ -2,13 +2,19 @@ name = "ry7yy-ipa-bot"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
-# KV Namespace for session storage
+# KV Namespace لتخزين الجلسات
 [[kv_namespaces]]
 binding = "SESSION_KV"
 id = "3a1ae8dadcf04ece8ac977e870b242e5"
-# Environment variables (secrets)
+
 [vars]
+# 👇 اسم القناة بدون @
 CHANNEL_USERNAME = "RY7DY"
-BOT_UPLOAD_LIMIT_BYTES = "50"
-#BOT_TOKEN = "your_telegram_bot_token"
+
+# أقصى حجم لإعادة الرفع Multipart (بالبايت) – مثلاً 50MB
+BOT_UPLOAD_LIMIT_BYTES = "52428800"
+
+# لازم تضيف التوكن السري عبر secrets
+# wrangler secret put BOT_TOKEN
+# مثال لقائمة المدراء (IDs)
 #OWNER_IDS = "123456789,987654321"
