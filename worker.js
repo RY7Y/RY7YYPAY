@@ -26,6 +26,7 @@ export default {
 
       const chatId = msg.chat.id;
       const userId = msg.from?.id;
+      const text = msg.text?.trim();
 
       const allowed = await isAllowedUser({
         token: BOT_TOKEN,
@@ -46,7 +47,8 @@ export default {
 
       let state = (await KV.get(`state:${chatId}`, { type: "json" })) || freshState();
 
-      if (msg.text === "/start") {
+      // ──────────────── الأوامر ────────────────
+      if (text === "/start") {
         state = freshState();
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
@@ -66,7 +68,7 @@ export default {
         return json({ ok: true });
       }
 
-      if (msg.text === "/help") {
+      if (text === "/help") {
         await sendMessage(
           BOT_TOKEN,
           chatId,
@@ -77,12 +79,13 @@ export default {
         return json({ ok: true });
       }
 
-      if (msg.text === "/reset") {
+      if (text === "/reset") {
         await KV.delete(`state:${chatId}`);
-        await sendMessage(BOT_TOKEN, chatId, "تمت إعادة الضبط.");
+        await sendMessage(BOT_TOKEN, chatId, "تمت إعادة الضبط.\nأرسل /start للبداية من جديد.");
         return json({ ok: true });
       }
 
+      // ──────────────── استقبال ملف IPA ────────────────
       if (msg.document && state.step === "awaiting_ipa") {
         const doc = msg.document;
         if (!/\.ipa$/i.test(doc.file_name || "")) {
@@ -105,6 +108,7 @@ export default {
         return json({ ok: true });
       }
 
+      // ──────────────── استقبال صورة الأيقونة ────────────────
       if (msg.photo && state.step === "awaiting_image") {
         const best = msg.photo[msg.photo.length - 1];
         let imgPath = null;
@@ -122,19 +126,19 @@ export default {
         return json({ ok: true });
       }
 
-      if (msg.text && state.step === "awaiting_name") {
-        const desired = (msg.text || "").trim();
-        if (!/\.ipa$/i.test(desired)) {
+      // ──────────────── استقبال الاسم الجديد ────────────────
+      if (text && state.step === "awaiting_name") {
+        if (!/\.ipa$/i.test(text)) {
           await sendMessage(BOT_TOKEN, chatId, "⚠️ الاسم يجب أن ينتهي بـ .ipa");
           return json({ ok: true });
         }
 
-        state.filename = desired;
+        state.filename = text;
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
         const prep = await sendMessage(BOT_TOKEN, chatId, progressFrame(0));
 
-        // 🔥 عداد 10 ثواني فقط
+        // ⏳ عداد 10 ثواني فقط
         await liveProgress(BOT_TOKEN, chatId, prep.message_id, 10, 10000);
 
         try {
@@ -161,12 +165,12 @@ export default {
           );
         }
 
-        // 🛑 إنهاء الجلسة
         await KV.delete(`state:${chatId}`);
         return json({ ok: true });
       }
 
-      if (msg.text && !["/start", "/help", "/reset"].includes(msg.text)) {
+      // ──────────────── رد افتراضي ────────────────
+      if (text) {
         await sendMessage(BOT_TOKEN, chatId, "أرسل /start للبدء أو /help للمساعدة.");
       }
 
@@ -178,7 +182,6 @@ export default {
 };
 
 /* =================== أدوات مساعدة =================== */
-
 function freshState() {
   return {
     step: "awaiting_ipa",
@@ -201,12 +204,7 @@ function json(obj, status = 200) {
 function parseOwnerIds(raw) {
   if (!raw) return new Set();
   return new Set(
-    String(raw)
-      .split(",")
-      .map(s => s.trim())
-      .filter(Boolean)
-      .map(s => Number(s))
-      .filter(n => Number.isFinite(n))
+    String(raw).split(",").map(s => s.trim()).filter(Boolean).map(s => Number(s)).filter(n => Number.isFinite(n))
   );
 }
 
@@ -216,6 +214,7 @@ function cryptoRandomId() {
   return [...b].map(x => x.toString(16).padStart(2, "0")).join("");
 }
 
+/* ========= رسائل أنيقة ========= */
 function fancyWelcome() {
   return [
     "┏━━━━━━━━━━━━━━━━━━━━━━┓",
@@ -240,15 +239,12 @@ function helpText() {
   ].join("\n");
 }
 
+/* ========= عدّاد ========= */
 function progressFrame(pct) {
   const width = 20;
   const filled = Math.round((pct / 100) * width);
   const bar = "▓".repeat(filled) + "░".repeat(width - filled);
-  return [
-    "┌ التحضير للإرسال",
-    `│ [${bar}] ${pct}%`,
-    "└ يرجى الانتظار…"
-  ].join("\n");
+  return ["┌ التحضير للإرسال", `│ [${bar}] ${pct}%`, "└ يرجى الانتظار…"].join("\n");
 }
 
 async function liveProgress(token, chatId, messageId, steps = 10, totalMs = 10000) {
@@ -267,7 +263,8 @@ async function setMyCommands(token) {
     { command: "reset", description: "إعادة الضبط" }
   ];
   await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ commands })
   });
 }
@@ -277,7 +274,9 @@ async function sendMessage(token, chatId, text, parseMode, replyMarkup) {
   if (parseMode) body.parse_mode = parseMode;
   if (replyMarkup) body.reply_markup = replyMarkup;
   const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
   });
   const data = await resp.json().catch(() => ({}));
   return data.result || {};
@@ -285,7 +284,8 @@ async function sendMessage(token, chatId, text, parseMode, replyMarkup) {
 
 async function editMessageText(token, chatId, messageId, text) {
   await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, message_id: messageId, text })
   });
 }
@@ -321,7 +321,9 @@ async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath,
   });
 
   const res = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
-    method: "POST", headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` }, body: bodyStream
+    method: "POST",
+    headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+    body: bodyStream
   });
   const data = await res.json().catch(() => ({}));
   if (!data.ok) throw new Error(data.description || `HTTP ${res.status}`);
