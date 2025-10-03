@@ -47,13 +47,12 @@ export default {
 
       let state = (await KV.get(`state:${chatId}`, { type: "json" })) || freshState();
 
-      // ──────────────── الأوامر ────────────────
+      // ──────────────── أوامر أساسية ────────────────
       if (text === "/start") {
         state = freshState();
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
         await setMyCommands(BOT_TOKEN).catch(() => {});
-
         await sendMessage(BOT_TOKEN, chatId, fancyWelcome());
         await sendMessage(
           BOT_TOKEN,
@@ -85,7 +84,7 @@ export default {
         return json({ ok: true });
       }
 
-      // ──────────────── استقبال ملف IPA ────────────────
+      // ──────────────── استقبال IPA ────────────────
       if (msg.document && state.step === "awaiting_ipa") {
         const doc = msg.document;
         if (!/\.ipa$/i.test(doc.file_name || "")) {
@@ -108,7 +107,7 @@ export default {
         return json({ ok: true });
       }
 
-      // ──────────────── استقبال صورة الأيقونة ────────────────
+      // ──────────────── استقبال صورة ────────────────
       if (msg.photo && state.step === "awaiting_image") {
         const best = msg.photo[msg.photo.length - 1];
         let imgPath = null;
@@ -126,7 +125,7 @@ export default {
         return json({ ok: true });
       }
 
-      // ──────────────── استقبال الاسم الجديد ────────────────
+      // ──────────────── استقبال الاسم ────────────────
       if (text && state.step === "awaiting_name") {
         if (!/\.ipa$/i.test(text)) {
           await sendMessage(BOT_TOKEN, chatId, "⚠️ الاسم يجب أن ينتهي بـ .ipa");
@@ -136,10 +135,10 @@ export default {
         state.filename = text;
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
-        const prep = await sendMessage(BOT_TOKEN, chatId, progressFrame(0));
+        // ⏳ عداد 10 ثوانٍ فقط
+        const waitMsg = await sendMessage(BOT_TOKEN, chatId, countdownMessage(10));
 
-        // ⏳ عداد 10 ثواني فقط
-        await liveProgress(BOT_TOKEN, chatId, prep.message_id, 10, 10000);
+        await new Promise(r => setTimeout(r, 10000));
 
         try {
           await sendDocumentWithThumbnail({
@@ -153,14 +152,14 @@ export default {
           await editMessageText(
             BOT_TOKEN,
             chatId,
-            prep.message_id,
+            waitMsg.message_id,
             "✅ تم الإرسال بنجاح!\n📂 الاسم: " + state.filename + "\n\nأرسل /start للبداية من جديد."
           );
         } catch (e) {
           await editMessageText(
             BOT_TOKEN,
             chatId,
-            prep.message_id,
+            waitMsg.message_id,
             "⚠️ تعذّر الإرسال: " + (e?.message || "خطأ غير معلوم") + "\n\nأرسل /start للمحاولة من جديد."
           );
         }
@@ -214,7 +213,7 @@ function cryptoRandomId() {
   return [...b].map(x => x.toString(16).padStart(2, "0")).join("");
 }
 
-/* ========= رسائل أنيقة ========= */
+/* ========= رسائل ========= */
 function fancyWelcome() {
   return [
     "┏━━━━━━━━━━━━━━━━━━━━━━┓",
@@ -239,20 +238,14 @@ function helpText() {
   ].join("\n");
 }
 
-/* ========= عدّاد ========= */
-function progressFrame(pct) {
-  const width = 20;
-  const filled = Math.round((pct / 100) * width);
-  const bar = "▓".repeat(filled) + "░".repeat(width - filled);
-  return ["┌ التحضير للإرسال", `│ [${bar}] ${pct}%`, "└ يرجى الانتظار…"].join("\n");
-}
-
-async function liveProgress(token, chatId, messageId, steps = 10, totalMs = 10000) {
-  for (let i = 1; i <= steps; i++) {
-    const pct = Math.round((i / steps) * 100);
-    await editMessageText(token, chatId, messageId, progressFrame(pct)).catch(() => {});
-    await new Promise(r => setTimeout(r, totalMs / steps));
-  }
+/* ========= عداد ثابت ========= */
+function countdownMessage(sec) {
+  return [
+    "⏳ الرجاء الانتظار…",
+    `سيتم تجهيز الملف خلال ${sec} ثوانٍ`,
+    "━━━━━━━━━━━━━━━━━━━━━━",
+    "📦 جارٍ التحضير…"
+  ].join("\n");
 }
 
 /* ========= Telegram Helpers ========= */
