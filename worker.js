@@ -165,7 +165,7 @@ export default {
 
         const prep = await sendMessage(BOT_TOKEN, chatId, progressFrame(0));
         // عداد حي “خرافي” حتى 100% ثم يبدأ الإرسال
-        await liveProgress(BOT_TOKEN, chatId, prep.message_id, 100);
+        await liveProgress(BOT_TOKEN, chatId, prep.message_id, 35);
 
         try {
           if (state.ipa_path && state.ipa_size <= BOT_UPLOAD_LIMIT) {
