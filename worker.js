@@ -2,13 +2,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    /* ================= إعدادات ================= */
     const BOT_TOKEN = env.BOT_TOKEN;
     const CHANNEL_USERNAME = String(env.CHANNEL_USERNAME || "RY7DY").replace(/^@/, "");
     const OWNER_IDS = parseOwnerIds(env.OWNER_IDS);
-    // يقبل أي قيمة؛ إن كانت صغيرة نعتبرها بالميجابايت
-    const RAW_LIMIT = Number(env.BOT_UPLOAD_LIMIT_BYTES || 50);
-    const BOT_UPLOAD_LIMIT = RAW_LIMIT <= 1000 ? RAW_LIMIT * 1024 * 1024 : RAW_LIMIT; // bytes
     const KV = env.SESSION_KV;
 
     if (!BOT_TOKEN) return json({ error: "Missing BOT_TOKEN" }, 500);
@@ -17,12 +13,10 @@ export default {
       return new Response("RY7YY IPA Bot ✅", { status: 200 });
     }
 
-    /* ================= Webhook ================= */
     if (url.pathname === "/telegram" && request.method === "POST") {
       const update = await request.json().catch(() => null);
       if (!update) return json({ ok: false }, 400);
 
-      // منع التكرار لكل update_id خلال 60 ثانية
       const evtId = String(update.update_id ?? cryptoRandomId());
       if (await KV.get(`evt:${evtId}`)) return json({ ok: true });
       await KV.put(`evt:${evtId}`, "1", { expirationTtl: 60 });
@@ -33,7 +27,6 @@ export default {
       const chatId = msg.chat.id;
       const userId = msg.from?.id;
 
-      // تحقق الاشتراك (مع السماح للملاك)
       const allowed = await isAllowedUser({
         token: BOT_TOKEN,
         channelUserName: CHANNEL_USERNAME,
@@ -42,36 +35,28 @@ export default {
       });
 
       if (!allowed) {
-        await sendMessage(
-          BOT_TOKEN,
-          chatId,
-          [
-            "⚠️ يتطلب الاستخدام الانضمام إلى القناة:",
-            `https://t.me/${CHANNEL_USERNAME}`,
-            "",
-            "بعد الانضمام أرسل /start."
-          ].join("\n")
-        );
+        await sendMessage(BOT_TOKEN, chatId, [
+          "⚠️ يتطلب الاستخدام الانضمام إلى القناة:",
+          `https://t.me/${CHANNEL_USERNAME}`,
+          "",
+          "بعد الانضمام أرسل /start."
+        ].join("\n"));
         return json({ ok: true });
       }
 
-      // حالة الجلسة
       let state = (await KV.get(`state:${chatId}`, { type: "json" })) || freshState();
 
-      /* ========== أوامر ثابتة ========== */
       if (msg.text === "/start") {
         state = freshState();
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
-        // ضبط أوامر الشرطة المائلة
         await setMyCommands(BOT_TOKEN).catch(() => {});
 
-        // إشعار “تم التحقق” مرة كل 24 ساعة (ويحذف بعد 3 ثوانٍ)
         const ackKey = `ack:${chatId}`;
         if (!(await KV.get(ackKey))) {
           const ack = await sendMessage(BOT_TOKEN, chatId, "تم التحقق ✅ — أهلاً بك!");
           if (ack?.message_id) waitAndDelete(BOT_TOKEN, chatId, ack.message_id, 3000).catch(() => {});
-          await KV.put(ackKey, "1", { expirationTtl: 86400 });
+          await KV.put(ackKey, "1", { expirationTtl: 86400 }); // يوم كامل
         }
 
         await sendMessage(BOT_TOKEN, chatId, fancyWelcome());
@@ -79,9 +64,9 @@ export default {
           BOT_TOKEN,
           chatId,
           [
-            "① أرسل **ملف IPA**.",
-            "② أرسل **صورة للأيقونة**.",
-            "③ أرسل **الاسم الجديد** مثل: `MyApp.ipa`."
+            "① أرسل ملف IPA.",
+            "② أرسل صورة للأيقونة.",
+            "③ أرسل الاسم الجديد مثل: `MyApp.ipa`."
           ].join("\n"),
           "Markdown"
         );
@@ -105,20 +90,18 @@ export default {
         return json({ ok: true });
       }
 
-      /* ========== استقبال IPA ========== */
       if (msg.document && state.step === "awaiting_ipa") {
         const doc = msg.document;
         if (!/\.ipa$/i.test(doc.file_name || "")) {
-          await sendMessage(BOT_TOKEN, chatId, "الرجاء إرسال ملف بصيغة .ipa فقط.");
+          await sendMessage(BOT_TOKEN, chatId, "⚠️ أرسل ملف بصيغة .ipa فقط.");
           return json({ ok: true });
         }
 
-        // نقبل أي حجم: نحاول getFile، وإن فشل نستعمل file_id عند الإرسال.
         let path = null;
         try {
           const info = await getFile(BOT_TOKEN, doc.file_id);
           path = info?.file_path || null;
-        } catch { /* نتجاهل الفشل */ }
+        } catch {}
 
         state.ipa_file_id = doc.file_id;
         state.ipa_path = path;
@@ -126,85 +109,70 @@ export default {
         state.step = "awaiting_image";
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
-        await sendMessage(BOT_TOKEN, chatId, "تم استلام الملف. الآن أرسل صورة للأيقونة.");
+        await sendMessage(BOT_TOKEN, chatId, "📌 تم استلام الملف.\nالآن أرسل صورة للأيقونة.");
         return json({ ok: true });
       }
 
-      /* ========== استقبال الأيقونة ========== */
       if (msg.photo && state.step === "awaiting_image") {
         const best = msg.photo[msg.photo.length - 1];
         let imgPath = null;
         try {
           const info = await getFile(BOT_TOKEN, best.file_id);
           imgPath = info?.file_path || null;
-        } catch { /* نتجاهل */ }
+        } catch {}
 
         state.image_file_id = best.file_id;
         state.image_path = imgPath;
         state.step = "awaiting_name";
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
-        await sendMessage(BOT_TOKEN, chatId, "تم حفظ الأيقونة.\nأرسل الآن الاسم الجديد مثل: MyApp.ipa");
+        await sendMessage(BOT_TOKEN, chatId, "📌 تم حفظ الأيقونة.\nأرسل الآن الاسم الجديد مثل: MyApp.ipa");
         return json({ ok: true });
       }
 
-      /* ========== استقبال الاسم + عدّاد + إرسال ========== */
       if (msg.text && state.step === "awaiting_name") {
         const desired = (msg.text || "").trim();
         if (!/\.ipa$/i.test(desired)) {
-          await sendMessage(BOT_TOKEN, chatId, "الاسم يجب أن ينتهي بـ .ipa");
+          await sendMessage(BOT_TOKEN, chatId, "⚠️ الاسم يجب أن ينتهي بـ .ipa");
           return json({ ok: true });
         }
+
         state.filename = desired;
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
-        // قفل منع التكرار أثناء الإرسال
         const lockKey = `lock:${chatId}`;
         if (await KV.get(lockKey)) return json({ ok: true });
         await KV.put(lockKey, "1", { expirationTtl: 120 });
 
         const prep = await sendMessage(BOT_TOKEN, chatId, progressFrame(0));
-        // عداد حي “خرافي” حتى 100% ثم يبدأ الإرسال
-        await liveProgress(BOT_TOKEN, chatId, prep.message_id, 35);
+
+        // ✅ الآن العداد يكتمل تماماً قبل رفع الملف
+        await liveProgress(BOT_TOKEN, chatId, prep.message_id, 100);
 
         try {
-          if (state.ipa_path && state.ipa_size <= BOT_UPLOAD_LIMIT) {
-            // إعادة رفع باسم جديد + أيقونة
-            await sendDocumentWithThumbnail({
-              botToken: BOT_TOKEN,
-              chatId,
-              ipaPath: state.ipa_path,
-              imagePath: state.image_path,
-              filename: state.filename
-            });
-            await editMessageText(BOT_TOKEN, chatId, prep.message_id, "تم الإرسال بنجاح.\nالاسم: " + state.filename);
-          } else {
-            // كبير جدًا: نرسل بالـ file_id (لا يمكن فرض اسم جديد عند file_id — قيد تيليجرام)
-            await sendDocumentByFileId({
-              botToken: BOT_TOKEN,
-              chatId,
-              fileId: state.ipa_file_id,
-              thumbFileId: state.image_file_id,
-              caption: state.filename
-            });
-            await editMessageText(
-              BOT_TOKEN,
-              chatId,
-              prep.message_id,
-              "تم الإرسال.\n(قد يظهر اسم الملف الأصلي لقيود المنصّة)"
-            );
-          }
+          await sendDocumentWithThumbnail({
+            botToken: BOT_TOKEN,
+            chatId,
+            ipaPath: state.ipa_path,
+            imagePath: state.image_path,
+            filename: state.filename
+          });
+
+          await editMessageText(BOT_TOKEN, chatId, prep.message_id, "✅ تم الإرسال بنجاح!\n📂 الاسم: " + state.filename);
         } catch (e) {
-          await editMessageText(BOT_TOKEN, chatId, prep.message_id, "تعذّر الإرسال: " + (e?.message || "خطأ غير معلوم"));
+          await editMessageText(BOT_TOKEN, chatId, prep.message_id, "⚠️ تعذّر الإرسال: " + (e?.message || "خطأ غير معلوم"));
         }
 
-        // إنهاء الجلسة بعد اكتمال الإرسال
+        // 🛑 إنهاء الجلسة فقط بعد رفع الملف
         await KV.delete(`state:${chatId}`);
         await KV.delete(lockKey);
         return json({ ok: true });
       }
 
-      // رد افتراضي
+      return json({ ok: true });
+    }
+    
+    // رد افتراضي
       if (msg.text && !["/start", "/help", "/reset"].includes(msg.text)) {
         await sendMessage(BOT_TOKEN, chatId, "أرسل /start للبدء أو /help للمساعدة.");
       }
