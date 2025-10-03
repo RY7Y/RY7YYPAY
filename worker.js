@@ -51,25 +51,7 @@ export default {
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
         await setMyCommands(BOT_TOKEN).catch(() => {});
-
-        const ackKey = `ack:${chatId}`;
-        if (!(await KV.get(ackKey))) {
-          const ack = await sendMessage(BOT_TOKEN, chatId, "تم التحقق ✅ — أهلاً بك!");
-          if (ack?.message_id) waitAndDelete(BOT_TOKEN, chatId, ack.message_id, 3000).catch(() => {});
-          await KV.put(ackKey, "1", { expirationTtl: 86400 });
-        }
-
         await sendMessage(BOT_TOKEN, chatId, fancyWelcome());
-        await sendMessage(
-          BOT_TOKEN,
-          chatId,
-          [
-            "① أرسل ملف IPA.",
-            "② أرسل صورة للأيقونة.",
-            "③ أرسل الاسم الجديد مثل: `MyApp.ipa`."
-          ].join("\n"),
-          "Markdown"
-        );
         return json({ ok: true });
       }
 
@@ -81,12 +63,6 @@ export default {
           undefined,
           { inline_keyboard: [[{ text: "تواصل معنا", url: "https://t.me/RY7YY" }]] }
         );
-        return json({ ok: true });
-      }
-
-      if (msg.text === "/reset") {
-        await KV.delete(`state:${chatId}`);
-        await sendMessage(BOT_TOKEN, chatId, "تمت إعادة الضبط.");
         return json({ ok: true });
       }
 
@@ -105,7 +81,6 @@ export default {
 
         state.ipa_file_id = doc.file_id;
         state.ipa_path = path;
-        state.ipa_size = Number(doc.file_size || 0);
         state.step = "awaiting_image";
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
@@ -140,14 +115,10 @@ export default {
         state.filename = desired;
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
-        const lockKey = `lock:${chatId}`;
-        if (await KV.get(lockKey)) return json({ ok: true });
-        await KV.put(lockKey, "1", { expirationTtl: 300 });
-
         const prep = await sendMessage(BOT_TOKEN, chatId, progressFrame(0));
 
-        // 🔥 العداد يشتغل للنهاية وبعدين يبدأ رفع الملف
-        await liveProgress(BOT_TOKEN, chatId, prep.message_id, 100);
+        // 🔥 عداد بسيط 10 خطوات × ثانية واحدة = 10 ثواني
+        await liveProgress(BOT_TOKEN, chatId, prep.message_id, 10, 10000);
 
         try {
           await sendDocumentWithThumbnail({
@@ -164,13 +135,7 @@ export default {
         }
 
         await KV.delete(`state:${chatId}`);
-        await KV.delete(lockKey);
         return json({ ok: true });
-      }
-
-      // رد افتراضي هنا داخل /telegram
-      if (msg.text && !["/start", "/help", "/reset"].includes(msg.text)) {
-        await sendMessage(BOT_TOKEN, chatId, "أرسل /start للبدء أو /help للمساعدة.");
       }
 
       return json({ ok: true });
@@ -181,36 +146,12 @@ export default {
 };
 
 /* =================== أدوات مساعدة =================== */
-
 function freshState() {
-  return {
-    step: "awaiting_ipa",
-    ipa_file_id: null,
-    ipa_path: null,
-    ipa_size: 0,
-    image_file_id: null,
-    image_path: null,
-    filename: null
-  };
+  return { step: "awaiting_ipa", ipa_file_id: null, ipa_path: null, image_file_id: null, image_path: null, filename: null };
 }
 
 function json(obj, status = 200) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: { "Content-Type": "application/json" }
-  });
-}
-
-function parseOwnerIds(raw) {
-  if (!raw) return new Set();
-  return new Set(
-    String(raw)
-      .split(",")
-      .map(s => s.trim())
-      .filter(Boolean)
-      .map(s => Number(s))
-      .filter(n => Number.isFinite(n))
-  );
+  return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
 }
 
 function cryptoRandomId() {
@@ -219,8 +160,6 @@ function cryptoRandomId() {
   return [...b].map(x => x.toString(16).padStart(2, "0")).join("");
 }
 
-/* ========= رسائل أنيقة (بدون إيموجي) ========= */
-
 function fancyWelcome() {
   return [
     "┏━━━━━━━━━━━━━━━━━━━━━━┓",
@@ -228,10 +167,10 @@ function fancyWelcome() {
     "┗━━━━━━━━━━━━━━━━━━━━━━┛",
     "حوِّل ملف IPA لنسخة أنيقة داخل تيليجرام:",
     "• إعادة تسمية احترافية",
-    "• أيقونة مخصّصة لرسالة الملف",
+    "• أيقونة مخصّصة",
     "• خطوات بسيطة وسريعة",
     "",
-    "ابدأ بإرسال الملف الآن…"
+    "ابدأ الآن…"
   ].join("\n");
 }
 
@@ -241,17 +180,14 @@ function helpText() {
     "│ 1) أرسل ملف IPA",
     "│ 2) أرسل صورة للأيقونة",
     "│ 3) أرسل الاسم الجديد مثل: MyApp.ipa",
-    "╰─ سيعيد البوت رفع الملف داخل تيليجرام بالاسم الجديد مع الأيقونة.",
-    "",
-    "ملاحظة: عند الملفات الكبيرة جدًا يرسل البوت بالـ file_id (قد يظهر الاسم الأصلي لقيود المنصّة)."
+    "╰─ سيعيد البوت رفع الملف داخل تيليجرام بالاسم الجديد مع الأيقونة."
   ].join("\n");
 }
 
-/* ========= عدّاد تقدّم احترافي ========= */
 function progressFrame(pct) {
-  const width = 24;
+  const width = 20;
   const filled = Math.round((pct / 100) * width);
-  const bar = "█".repeat(filled) + "░".repeat(width - filled);
+  const bar = "▓".repeat(filled) + "░".repeat(width - filled);
   return [
     "┌ التحضير للإرسال",
     `│ [${bar}] ${pct}%`,
@@ -259,19 +195,15 @@ function progressFrame(pct) {
   ].join("\n");
 }
 
-async function liveProgress(token, chatId, messageId, steps = 100) {
-  const totalMs = 6000; // ~6 ثوانٍ
-  for (let i = 0; i <= steps; i++) {
-    const pct = i;
+async function liveProgress(token, chatId, messageId, steps = 10, totalMs = 10000) {
+  for (let i = 1; i <= steps; i++) {
+    const pct = Math.round((i / steps) * 100);
     await editMessageText(token, chatId, messageId, progressFrame(pct)).catch(() => {});
-    if (i % 3 === 0) await sendChatAction(token, chatId, "upload_document").catch(() => {});
-    const remain = totalMs / steps;
-    await new Promise(r => setTimeout(r, Math.max(40, remain)));
+    await new Promise(r => setTimeout(r, totalMs / steps));
   }
 }
 
 /* ========= Telegram Helpers ========= */
-
 async function setMyCommands(token) {
   const commands = [
     { command: "start", description: "ابدأ" },
@@ -279,8 +211,7 @@ async function setMyCommands(token) {
     { command: "reset", description: "إعادة الضبط" }
   ];
   await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ commands })
   });
 }
@@ -290,9 +221,7 @@ async function sendMessage(token, chatId, text, parseMode, replyMarkup) {
   if (parseMode) body.parse_mode = parseMode;
   if (replyMarkup) body.reply_markup = replyMarkup;
   const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
   });
   const data = await resp.json().catch(() => ({}));
   return data.result || {};
@@ -300,29 +229,8 @@ async function sendMessage(token, chatId, text, parseMode, replyMarkup) {
 
 async function editMessageText(token, chatId, messageId, text) {
   await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, message_id: messageId, text })
-  });
-}
-
-async function deleteMessage(token, chatId, messageId) {
-  await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, message_id: messageId })
-  });
-}
-async function waitAndDelete(token, chatId, messageId, ms) {
-  await new Promise(r => setTimeout(r, ms));
-  await deleteMessage(token, chatId, messageId).catch(() => {});
-}
-
-async function sendChatAction(token, chatId, action) {
-  await fetch(`https://api.telegram.org/bot${token}/sendChatAction`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, action: action || "typing" })
   });
 }
 
@@ -333,18 +241,10 @@ async function getFile(token, fileId) {
   return data.result;
 }
 
-/** إعادة رفع باسم جديد مع thumbnail (يتطلب file_path من تيليجرام) */
 async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath, filename }) {
   const ipaUrl = `https://api.telegram.org/file/bot${botToken}/${ipaPath}`;
   const ipaResp = await fetch(ipaUrl);
-  if (!ipaResp.ok || !ipaResp.body) throw new Error("Failed to fetch IPA stream");
-
-  let imgResp = null;
-  if (imagePath) {
-    const imgUrl = `https://api.telegram.org/file/bot${botToken}/${imagePath}`;
-    imgResp = await fetch(imgUrl);
-    if (!imgResp.ok || !imgResp.body) imgResp = null;
-  }
+  if (!ipaResp.ok || !ipaResp.body) throw new Error("Failed to fetch IPA");
 
   const boundary = "----RY7YYBoundary" + cryptoRandomId();
   const enc = new TextEncoder();
@@ -356,51 +256,19 @@ async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath,
     async start(controller) {
       controller.enqueue(enc.encode(part("chat_id") + chatId + "\r\n"));
       controller.enqueue(enc.encode(part("caption") + sanitizeFilename(filename || "app.ipa") + "\r\n"));
-
       controller.enqueue(enc.encode(part("document", sanitizeFilename(filename || "app.ipa"), "application/octet-stream")));
       await pipeStream(ipaResp.body, controller);
       controller.enqueue(enc.encode("\r\n"));
-
-      if (imgResp && imgResp.body) {
-        controller.enqueue(enc.encode(part("thumbnail", "thumb.jpg", "image/jpeg")));
-        await pipeStream(imgResp.body, controller);
-        controller.enqueue(enc.encode("\r\n"));
-      }
-
       controller.enqueue(enc.encode(tail));
       controller.close();
     }
   });
 
   const res = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
-    method: "POST",
-    headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
-    body: bodyStream
+    method: "POST", headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` }, body: bodyStream
   });
   const data = await res.json().catch(() => ({}));
   if (!data.ok) throw new Error(data.description || `HTTP ${res.status}`);
-}
-
-/** إرسال بواسطة file_id (للملفات الكبيرة جدًا) */
-async function sendDocumentByFileId({ botToken, chatId, fileId, thumbFileId, caption }) {
-  const body = { chat_id: chatId, document: fileId, caption: caption || "" };
-  if (thumbFileId) body.thumbnail = thumbFileId;
-
-  let resp = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  let data = await resp.json().catch(() => ({}));
-  if (!data.ok && thumbFileId) {
-    const resp2 = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, document: fileId, caption: caption || "" })
-    });
-    data = await resp2.json().catch(() => ({}));
-  }
-  if (!data.ok) throw new Error(`send by file_id failed: ${data.description || resp.status}`);
 }
 
 async function pipeStream(srcReadable, controller) {
@@ -412,22 +280,6 @@ async function pipeStream(srcReadable, controller) {
   }
 }
 
-/* ========= تحقق الاشتراك ========= */
-async function isAllowedUser({ token, channelUserName, userId, ownerIds }) {
-  try {
-    if (ownerIds && ownerIds.has(Number(userId))) return true;
-    const url = `https://api.telegram.org/bot${token}/getChatMember?chat_id=@${channelUserName}&user_id=${userId}`;
-    const resp = await fetch(url);
-    const data = await resp.json().catch(() => ({}));
-    if (!data.ok) return ownerIds && ownerIds.has(Number(userId));
-    const st = data.result?.status;
-    return ["creator", "administrator", "member"].includes(st);
-  } catch {
-    return ownerIds && ownerIds.has(Number(userId));
-  }
-}
-
-/* ========= تنسيق أسماء ========= */
 function sanitizeFilename(name) {
   return name.replace(/[^a-zA-Z0-9._\u0600-\u06FF-]+/g, "_");
 }
