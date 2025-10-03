@@ -1,26 +1,28 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    /* ================= إعدادات ================= */
     const BOT_TOKEN = env.BOT_TOKEN;
     const CHANNEL_USERNAME = String(env.CHANNEL_USERNAME || "RY7DY").replace(/^@/, "");
     const OWNER_IDS = parseOwnerIds(env.OWNER_IDS);
+    // يقبل أي قيمة؛ إن كانت صغيرة نعتبرها بالميجابايت
     const RAW_LIMIT = Number(env.BOT_UPLOAD_LIMIT_BYTES || 50);
     const BOT_UPLOAD_LIMIT = RAW_LIMIT <= 1000 ? RAW_LIMIT * 1024 * 1024 : RAW_LIMIT; // bytes
     const KV = env.SESSION_KV;
 
     if (!BOT_TOKEN) return json({ error: "Missing BOT_TOKEN" }, 500);
 
-    // صحّة التشغيل
     if (url.pathname === "/" || url.pathname === "") {
       return new Response("RY7YY IPA Bot ✅", { status: 200 });
     }
 
-    // Webhook
+    /* ================= Webhook ================= */
     if (url.pathname === "/telegram" && request.method === "POST") {
       const update = await request.json().catch(() => null);
       if (!update) return json({ ok: false }, 400);
 
-      // منع التكرار لكل Update
+      // منع التكرار لكل update_id خلال 60 ثانية
       const evtId = String(update.update_id ?? cryptoRandomId());
       if (await KV.get(`evt:${evtId}`)) return json({ ok: true });
       await KV.put(`evt:${evtId}`, "1", { expirationTtl: 60 });
@@ -31,7 +33,7 @@ export default {
       const chatId = msg.chat.id;
       const userId = msg.from?.id;
 
-      // التحقق من الاشتراك (مع استثناء الملاك)
+      // تحقق الاشتراك (مع السماح للملاك)
       const allowed = await isAllowedUser({
         token: BOT_TOKEN,
         channelUserName: CHANNEL_USERNAME,
@@ -53,19 +55,18 @@ export default {
         return json({ ok: true });
       }
 
-      // جلسة
-      let state =
-        (await KV.get(`state:${chatId}`, { type: "json" })) || freshState();
+      // حالة الجلسة
+      let state = (await KV.get(`state:${chatId}`, { type: "json" })) || freshState();
 
-      /* ========== أوامر ========== */
+      /* ========== أوامر ثابتة ========== */
       if (msg.text === "/start") {
         state = freshState();
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
-        // أوامر البوت لشريط الأوامر
+        // ضبط أوامر الشرطة المائلة
         await setMyCommands(BOT_TOKEN).catch(() => {});
 
-        // إشعار “تم التحقق” مرة واحدة فقط كل 24 ساعة
+        // إشعار “تم التحقق” مرة كل 24 ساعة (ويحذف بعد 3 ثوانٍ)
         const ackKey = `ack:${chatId}`;
         if (!(await KV.get(ackKey))) {
           const ack = await sendMessage(BOT_TOKEN, chatId, "تم التحقق ✅ — أهلاً بك!");
@@ -112,15 +113,15 @@ export default {
           return json({ ok: true });
         }
 
-        // نحاول الحصول على file_path (للملفات التي يمكن تنزيلها لإعادة رفعها باسم جديد)
+        // نقبل أي حجم: نحاول getFile، وإن فشل نستعمل file_id عند الإرسال.
         let path = null;
         try {
           const info = await getFile(BOT_TOKEN, doc.file_id);
           path = info?.file_path || null;
-        } catch { /* نتجاهل */ }
+        } catch { /* نتجاهل الفشل */ }
 
         state.ipa_file_id = doc.file_id;
-        state.ipa_path = path; // إن لم يوجد path سنرسل لاحقًا عبر file_id
+        state.ipa_path = path;
         state.ipa_size = Number(doc.file_size || 0);
         state.step = "awaiting_image";
         await KV.put(`state:${chatId}`, JSON.stringify(state));
@@ -147,7 +148,7 @@ export default {
         return json({ ok: true });
       }
 
-      /* ========== استقبال الاسم + عدّاد + إرسال مرّة واحدة فقط ========== */
+      /* ========== استقبال الاسم + عدّاد + إرسال ========== */
       if (msg.text && state.step === "awaiting_name") {
         const desired = (msg.text || "").trim();
         if (!/\.ipa$/i.test(desired)) {
@@ -157,19 +158,18 @@ export default {
         state.filename = desired;
         await KV.put(`state:${chatId}`, JSON.stringify(state));
 
-        // قفل منع التكرار
+        // قفل منع التكرار أثناء الإرسال
         const lockKey = `lock:${chatId}`;
         if (await KV.get(lockKey)) return json({ ok: true });
-        await KV.put(lockKey, "1", { expirationTtl: 60 });
+        await KV.put(lockKey, "1", { expirationTtl: 120 });
 
         const prep = await sendMessage(BOT_TOKEN, chatId, progressFrame(0));
-        await sendChatAction(BOT_TOKEN, chatId, "upload_document").catch(() => {});
-        // عداد “خرافي” من 0 → 100 ثم يبدأ الإرسال
+        // عداد حي “خرافي” حتى 100% ثم يبدأ الإرسال
         await liveProgress(BOT_TOKEN, chatId, prep.message_id, 100);
 
         try {
           if (state.ipa_path && state.ipa_size <= BOT_UPLOAD_LIMIT) {
-            // إعادة رفع باسم جديد مع الأيقونة
+            // إعادة رفع باسم جديد + أيقونة
             await sendDocumentWithThumbnail({
               botToken: BOT_TOKEN,
               chatId,
@@ -179,7 +179,7 @@ export default {
             });
             await editMessageText(BOT_TOKEN, chatId, prep.message_id, "تم الإرسال بنجاح.\nالاسم: " + state.filename);
           } else {
-            // كبير: نرسل بالـ file_id (لا يمكن فرض اسم جديد عند الإرسال بالـ file_id — قيد Bot API)
+            // كبير جدًا: نرسل بالـ file_id (لا يمكن فرض اسم جديد عند file_id — قيد تيليجرام)
             await sendDocumentByFileId({
               botToken: BOT_TOKEN,
               chatId,
@@ -191,14 +191,14 @@ export default {
               BOT_TOKEN,
               chatId,
               prep.message_id,
-              "تم الإرسال.\n(قد يظهر اسم الملف الأصلي لقيود تيليجرام)"
+              "تم الإرسال.\n(قد يظهر اسم الملف الأصلي لقيود المنصّة)"
             );
           }
         } catch (e) {
           await editMessageText(BOT_TOKEN, chatId, prep.message_id, "تعذّر الإرسال: " + (e?.message || "خطأ غير معلوم"));
         }
 
-        // إنهاء الجلسة
+        // إنهاء الجلسة بعد اكتمال الإرسال
         await KV.delete(`state:${chatId}`);
         await KV.delete(lockKey);
         return json({ ok: true });
@@ -254,7 +254,7 @@ function cryptoRandomId() {
   return [...b].map(x => x.toString(16).padStart(2, "0")).join("");
 }
 
-/* ========= رسائل أنيقة بدون إيموجي ========= */
+/* ========= رسائل أنيقة (بدون إيموجي) ========= */
 
 function fancyWelcome() {
   return [
@@ -263,7 +263,7 @@ function fancyWelcome() {
     "┗━━━━━━━━━━━━━━━━━━━━━━┛",
     "حوِّل ملف IPA لنسخة أنيقة داخل تيليجرام:",
     "• إعادة تسمية احترافية",
-    "• أيقونة مخصّصة للرسالة",
+    "• أيقونة مخصّصة لرسالة الملف",
     "• خطوات بسيطة وسريعة",
     "",
     "ابدأ بإرسال الملف الآن…"
@@ -278,12 +278,11 @@ function helpText() {
     "│ 3) أرسل الاسم الجديد مثل: MyApp.ipa",
     "╰─ سيعيد البوت رفع الملف داخل تيليجرام بالاسم الجديد مع الأيقونة.",
     "",
-    "ملاحظـة: عند الملفات الكبيرة جدًا يرسل البوت بالـ file_id (قد يظهر الاسم الأصلي لقيود المنصّة)."
+    "ملاحظة: عند الملفات الكبيرة جدًا يرسل البوت بالـ file_id (قد يظهر الاسم الأصلي لقيود المنصّة)."
   ].join("\n");
 }
 
 /* ========= عدّاد تقدّم احترافي ========= */
-
 function progressFrame(pct) {
   const width = 24;
   const filled = Math.round((pct / 100) * width);
@@ -296,12 +295,11 @@ function progressFrame(pct) {
 }
 
 async function liveProgress(token, chatId, messageId, steps = 100) {
-  // تحديث واقعي الشكل حتى 100%
   const totalMs = 6000; // ~6 ثوانٍ
   for (let i = 0; i <= steps; i++) {
     const pct = i;
     await editMessageText(token, chatId, messageId, progressFrame(pct)).catch(() => {});
-    // لتجنب Flood control لا نحدّث بسرعة عالية
+    if (i % 3 === 0) await sendChatAction(token, chatId, "upload_document").catch(() => {});
     const remain = totalMs / steps;
     await new Promise(r => setTimeout(r, Math.max(40, remain)));
   }
@@ -387,7 +385,6 @@ async function sendDocumentWithThumbnail({ botToken, chatId, ipaPath, imagePath,
   const enc = new TextEncoder();
   const part = (name, filename, ctype) =>
     `--${boundary}\r\nContent-Disposition: form-data; name="${name}"${filename ? `; filename="${filename}"` : ""}\r\n${ctype ? `Content-Type: ${ctype}\r\n` : ""}\r\n`;
-
   const tail = `\r\n--${boundary}--\r\n`;
 
   const bodyStream = new ReadableStream({
@@ -463,4 +460,9 @@ async function isAllowedUser({ token, channelUserName, userId, ownerIds }) {
   } catch {
     return ownerIds && ownerIds.has(Number(userId));
   }
+}
+
+/* ========= تنسيق أسماء ========= */
+function sanitizeFilename(name) {
+  return name.replace(/[^a-zA-Z0-9._\u0600-\u06FF-]+/g, "_");
 }
